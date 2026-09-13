@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Auxetic Chess</title>
+<meta name="description" content="Chess on a rotating-squares auxetic board that blooms open and folds into play.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f7f4ee'/><rect x='4' y='4' width='12' height='12' fill='%2323272e'/><rect x='16' y='16' width='12' height='12' fill='%2323272e'/></svg>">
+</head>
+<body>
+
+<main class="shell">
+
+  <section class="stage">
+    <canvas id="board" aria-label="Auxetic chess board"></canvas>
+
+    <div id="promo" class="promo" hidden>
+      <p>Promote to</p>
+      <div id="promo-choices" class="promo-choices"></div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <header class="brand">
+      <h1>Auxetic Chess</h1>
+      <p class="sub">Chess where every 2&times;2 block turns a quarter after each
+      move, carrying the pieces with it. Sixteen hinged tiles that also bloom
+      open to twice the area.</p>
+    </header>
+
+    <div class="statusbox">
+      <strong id="status">Unfolding</strong>
+      <span id="detail"></span>
+    </div>
+
+    <div class="captures">
+      <div class="cap-row">
+        <span class="cap-label">White took</span>
+        <span id="cap-white" class="cap glyphs b"></span>
+        <span class="adv"></span>
+      </div>
+      <div class="cap-row">
+        <span class="cap-label">Black took</span>
+        <span id="cap-black" class="cap glyphs w"></span>
+        <span class="adv"></span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <label for="level">Opponent</label>
+        <select id="level">
+          <option value="0">Casual</option>
+          <option value="1">Club</option>
+          <option value="2" selected>Strong</option>
+          <option value="3">Brutal</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="side">You play</label>
+        <select id="side">
+          <option value="white" selected>White</option>
+          <option value="black">Black</option>
+        </select>
+      </div>
+      <div class="row slider">
+        <label for="fold">Fold <span id="fold-val">45&deg;</span></label>
+        <input id="fold" type="range" min="0" max="100" value="100">
+      </div>
+      <div class="row buttons">
+        <button id="new-game" class="primary">New game</button>
+        <button id="undo">Undo</button>
+        <button id="flip">Flip</button>
+      </div>
+    </div>
+
+    <ol id="moves" class="moves"></ol>
+
+    <footer class="foot">
+      <p><span class="k">theta</span> drives the whole board:
+      pitch <span class="k">d = a&#8730;2&#183;cos(45&deg;+&theta;)</span>.
+      At 0&deg; the tiles sit flush; at 45&deg; the lattice is open and the area has doubled.</p>
+      <p class="credit">After the 3D-printed original by <strong>Ruven Bals</strong>.</p>
+    </footer>
+  </aside>
+
+</main>
+
+<script src="js/chess.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/pieces.js"></script>
+<script src="js/board.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
