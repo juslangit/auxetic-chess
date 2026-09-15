@@ -49,7 +49,7 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
                  detail: ui.detail.textContent, quarters: view.twistAngle / (Math.PI / 2) } : null; })())`));
 
   // ---- two players ----
-  await s.eval(`ui.level.value = 'hotseat'; ui.level.onchange();`);
+  await s.eval(`startGame({ level: 'hotseat' })`);
   await waitSolid();
 
   let B = await button();
@@ -112,7 +112,7 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
      `${back.sub}, paint ${back.quarters.toFixed(3)}`);
 
   // ---- against the computer: it respects your stop ----
-  await s.eval(`ui.level.value = '0'; ui.side.value = 'white'; ui.level.onchange();`);
+  await s.eval(`startGame({ level: 0, side: 'white', name: 'Tester' })`);
   await waitSolid();
   B = await button();
   ok(!B.disabled && B.sub === '3 of 3 left', 'against the computer: your count, no name', B.sub);
