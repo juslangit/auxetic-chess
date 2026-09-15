@@ -131,20 +131,43 @@ moved.
 
 Click a piece, then a highlighted square.
 
-**Opponent** picks who you are playing:
+The game opens on a **start screen**, with the board bloomed open behind it:
 
-- **Two players** -- hotseat. Both sides are played from the same keyboard, the
-  computer never moves, and the board starts with White at the bottom. Use
-  **Flip** to turn it round for the other player. One **Undo** takes back one
-  turn.
-- **Computer** at four strengths, from one that blunders on purpose to one that
-  searches eight plies. **You play** picks your colour, and against the computer
+- **Against the computer** -- enter a username, pick one of four levels (Casual,
+  Club, Strong, Brutal, from one that blunders on purpose to one that searches
+  eight plies) and your colour, then **Start game** (or Enter). A username is
+  required, and the last one used is filled in next time. Against the computer
   one **Undo** takes back its reply as well, so it is your turn again.
+- **Two players** -- hotseat, no username. Both sides are played from the same
+  keyboard, the computer never moves, and the board starts with White at the
+  bottom. Use **Flip** to turn it round for the other player. One **Undo** takes
+  back one turn.
+
+**New game** replays the same choices; **Menu** goes back to the start screen,
+with a button to return to the game in progress.
+
+### Leaderboard
+
+Each computer level has its own leaderboard, ranked by **wins** -- most wins
+first, and between equal counts whoever got there first. Two-player games have
+no leaderboard. The start screen shows the top ten for the level you pick, and
+**Leaderboard** in the side panel opens all four as tabs.
+
+Only a checkmate you deliver counts. **Using Undo turns that game into
+practice**: it plays on, but a win is not saved -- otherwise any win is one
+takeback away. New game starts ranked again. The side panel always says which
+it is, and a saved win is shown on the checkmate card with your total and rank.
+
+Scores are saved **in this browser** (`localStorage`), so everyone who plays on
+one computer or phone shares a board, and a different device has its own. Names
+are matched without case ("Luqman" and "luqman" are one player) and capped at
+16 characters. If the browser will not store anything, as in some private
+windows, scores last until the page is closed. The code is `js/leaderboard.js`.
 
 Undo reverses the twist along with the move, and winds the board's paint back by
 a quarter for each turn that actually twisted.
 
-Keys: `f` flip the board, `u` undo.
+Keys: `f` flip the board, `u` undo -- only on the board, never while typing a name.
 
 ### Stop turning
 
@@ -179,7 +202,8 @@ at the top of `js/main.js`.
 | `js/ai.js` | Negamax, alpha-beta, quiescence, killer moves, repetition, tapered eval; under the twist each piece is scored by the average of its block's four squares |
 | `js/pieces.js` | Piece artwork, baked to offscreen sprites |
 | `js/board.js` | The auxetic geometry and the canvas renderer |
-| `js/main.js` | Game flow, input, the side panel |
+| `js/leaderboard.js` | Wins per computer level, saved in the browser |
+| `js/main.js` | Game flow, input, the side panel, the start screen |
 
 ## Correctness
 

@@ -84,6 +84,14 @@ GALLERIES = [
         ("test/shots/checkmate.png", "Checkmate from the browser suite: the board stays shut and dimmed under the card, so the mating rook on a8 is still visible."),
         ("docs/shots/stalemate-bloomed.png", "A stalemate. There is no card for a draw: the board blooms back open around the three pieces left."),
     ]),
+    ("screens-leaderboard", "Start screen and leaderboard", "Added 2026-09-15 (M9). Every game now starts here: a username, a computer level and a colour, or Two players with no name. Each computer level keeps its own table of wins, saved in the browser. The single Luqman win in these pictures is the one the browser test suite records.", "wide", [
+        ("docs/shots/start-screen.png", "The page on first load: the start screen over the bloomed-open board, and an empty Strong leaderboard."),
+        ("docs/shots/ranked-win.png", "A ranked checkmate against Casual. The card adds the player's total and rank, and the side panel confirms the win was saved."),
+        ("docs/shots/leaderboard-window.png", "Leaderboard from the side panel: one tab per level, opening on the level being played, with your own row in amber."),
+    ]),
+    ("screens-phone-start", "The start screen on a phone", "Captured at 390 px wide. The form and the leaderboard stack into one column.", "tall", [
+        ("docs/shots/phone-start.png", "The name from last time is filled in, and picking Casual shows the Casual table."),
+    ]),
     ("screens-phone", "On a phone", "Captured at 390 px wide. The board sits on top and the side panel stacks underneath.", "tall", [
         ("docs/shots/phone-opening.png", "The opening position, with the status, Stop turning and the controls under the board."),
         ("docs/shots/phone-twist-mid.png", "The quarter turn after 1. e4, caught partway."),
@@ -137,7 +145,7 @@ TOOLS = [
 # matching file is listed with the comment at its top.
 CATALOGUES = [
     ("checks-tests", "Test files", "Everything in test/. `test/run.sh` runs the Node suites first, then serves the folder and runs the browser suites in order. A dash means the file opens with code rather than a comment.", ["test/run.sh", "test/*.js"]),
-    ("checks-source", "Game source", "The five scripts index.html loads, in the order they load.", ["js/chess.js", "js/ai.js", "js/pieces.js", "js/board.js", "js/main.js"]),
+    ("checks-source", "Game source", "The six scripts index.html loads, in the order they load.", ["js/chess.js", "js/ai.js", "js/pieces.js", "js/leaderboard.js", "js/board.js", "js/main.js"]),
 ]
 
 
