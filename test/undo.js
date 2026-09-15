@@ -142,6 +142,30 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   ok(untouched.log === undone.log && untouched.turn === undone.turn && untouched.key === undone.key,
      'a stale promotion choice plays nothing', `${untouched.log} plies, turn ${untouched.turn ? 'Black' : 'White'}`);
 
+  // ---- 4. as Black, undo with only the computer's first move on the board ----
+  // There is no move of yours to take back. Undo used to take back the
+  // computer's move anyway, leaving it White to move with nothing asking the
+  // computer to play -- the game sat there until New game.
+  await s.eval(`ui.level.value = '0'; ui.side.value = 'black'; ui.side.onchange();`);
+  await waitSolid();
+  for (let i = 0; i < 60 && (await s.eval(`game.moveLog.length`)) < 1; i++) await sleep(150);
+  await waitSolid();
+  const opened = await s.eval(`game.moveLog.length`);
+  await pressU();
+  await sleep(2500);                                   // time for a computer move, if one were due
+  const asBlack = JSON.parse(await s.eval(`JSON.stringify({
+    log: game.moveLog.length, turn: game.turn, thinking,
+    status: document.getElementById('status').textContent })`));
+  ok(opened === 1 && asBlack.log === 1 && asBlack.turn === 1 && asBlack.status === 'Your move',
+     'as Black, undo cannot strand the computer', `${asBlack.log} ply, "${asBlack.status}"`);
+  const reply = JSON.parse(await s.eval(`JSON.stringify((()=>{
+    const m = game.legalMoves().find(x => !(x.flags & F_STOP));
+    return [squareName(m.from), squareName(m.to)]; })())`));
+  await play(...reply);
+  for (let i = 0; i < 60 && (await s.eval(`game.moveLog.length`)) < 3; i++) await sleep(150);
+  const goesOn = await s.eval(`game.moveLog.length`);
+  ok(goesOn === 3, 'and the game carries on', `${goesOn} plies`);
+
   console.log('\nconsole errors:', errs().length ? errs() : 'none');
   console.log(`${pass} passed, ${fail} failed`);
   await s.close();

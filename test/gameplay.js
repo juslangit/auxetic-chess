@@ -122,6 +122,24 @@ const ok = (c, msg, extra='') => { c?pass++:fail++; console.log(`${c?'PASS':'FAI
      'checkmate text appears', mateView.text);
   await s.shot(__dirname + '/shots/checkmate.png');
 
+  // The card must fit inside the board on a phone too.
+  const fits = [];
+  for (const [w, h] of [[390, 844], [768, 1024], [1400, 900]]) {
+    await s.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: w < 800 });
+    await sleep(250);
+    const f = JSON.parse(await s.eval(`JSON.stringify((() => {
+      const c = document.querySelector('.mate-card').getBoundingClientRect();
+      const st = document.querySelector('.stage').getBoundingClientRect();
+      const h2 = document.querySelector('.mate-card h2');
+      return { inside: c.left >= st.left && c.right <= st.right, clipped: h2.scrollWidth > h2.clientWidth };
+    })())`));
+    fits.push({ w, ...f });
+  }
+  await s.send('Emulation.clearDeviceMetricsOverride');
+  await sleep(250);
+  ok(fits.every((f) => f.inside && !f.clipped), 'checkmate card fits at 390 / 768 / 1400 px',
+     fits.map((f) => `${f.w}:${f.inside && !f.clipped ? 'ok' : 'OUT'}`).join(' '));
+
   // ---- 6. undo restores the position exactly ----
   await s.eval(`
     epoch++; game.reset(); game.moveLog = []; view.setTwistAngle(0); game.twist = false; gameFinished = false; thinking = false;

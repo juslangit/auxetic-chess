@@ -93,7 +93,10 @@ html, body {
 /* Same specificity trap as `.row[hidden]`. */
 .mate[hidden] { display: none; }
 .mate-card {
-  padding: 22px 48px 26px;
+  /* Side padding and the headline both shrink with the screen: on a phone the
+     board is only ~370px wide, and at the desktop sizes CHECKMATE ran off it. */
+  max-width: 100%;
+  padding: 22px clamp(18px, 5vw, 48px) 26px;
   text-align: center;
   background: rgba(20, 23, 29, 0.94);
   border: 2px solid var(--accent);
@@ -107,7 +110,7 @@ html, body {
 .mate-king.b { color: #20242b; text-shadow: 0 0 1px rgba(255,255,255,0.7), 0 0 14px rgba(255,255,255,0.18); }
 .mate-card h2 {
   margin: 6px 0 0;
-  font-size: clamp(40px, 7vw, 72px);
+  font-size: clamp(30px, 8vw, 72px);
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.04em;

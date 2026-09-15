@@ -368,6 +368,15 @@ el('undo').onclick = () => {
   // crooked for the rest of the game. Board clicks wait for the same thing.
   if (view.twistAnim) return;
 
+  // Take back a full move so it is the player's turn again.
+  // Against the computer, take back its reply too so it is your turn again.
+  // In hotseat one ply is one turn, so take back exactly one.
+  const plies = hotseat() ? 1 : (game.turn === playerColor ? 2 : 1);
+  // Playing Black, the computer's opening move has no move of yours before it.
+  // Taking it back alone would hand the turn to the computer with nothing to
+  // make it play, so there is simply nothing to undo yet.
+  if (game.moveLog.length < plies) return;
+
   // A promotion box belongs to the position it was opened in. Close it, or a
   // choice made after the undo plays that move into a different position.
   pendingPromo = null;
@@ -380,10 +389,6 @@ el('undo').onclick = () => {
   ui.mate.hidden = true;
   stopArmed = false;
 
-  // Take back a full move so it is the player's turn again.
-  // Against the computer, take back its reply too so it is your turn again.
-  // In hotseat one ply is one turn, so take back exactly one.
-  const plies = hotseat() ? 1 : (game.turn === playerColor ? 2 : 1);
   let unwind = 0;
   for (let i = 0; i < plies && game.moveLog.length; i++) {
     const h = game.history[game.history.length - 1];
