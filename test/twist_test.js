@@ -7,6 +7,10 @@ const ctx = new Function(
   ' WHITE, BLACK, EMPTY, typeOf, colorOf, FILES};')();
 const { Chess, AI, twistForward, twistBack, squareName, PAWN, QUEEN, KING, ROOK, WHITE, BLACK, EMPTY, typeOf, colorOf } = ctx;
 
+// Same games, same engine picks, every run -- see repeatable.js. TEST_SEED tries another.
+const { seed, fullDepth } = require('./repeatable.js');
+seed(+process.env.TEST_SEED || 1);
+
 let pass = 0, fail = 0;
 const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${msg.padEnd(46)}${extra}`); };
 const idx = (n) => 'abcdefgh'.indexOf(n[0]) + (+n[1] - 1) * 16;
@@ -130,11 +134,14 @@ console.log('\n--- legality is exactly normal chess ---');
   };
   const key = (ms) => ms.map((m) => m.from + ':' + m.to + ':' + m.promo).sort().join(' ');
 
-  const t = new Chess(); t.twist = true;
+  /* 160 positions, over as many random games as that takes. It used to be one
+     game, which a random mate could end after 7 moves -- too few turns for the
+     twist to have had a reason to stand down, so the second check failed. */
+  let t = null;
   let same = true, checked = 0, skipped = 0, worstPly = -1;
-  for (let ply = 0; ply < 160; ply++) {
+  for (let ply = 0; checked < 160 && same; ply++) {
+    if (!t || !t.legalMoves().length) { t = new Chess(); t.twist = true; }
     const legalT = t.legalMoves();
-    if (!legalT.length) break;
     if (key(legalT) !== key(clonePlain(t).legalMoves())) { same = false; worstPly = ply; break; }
     checked++;
     const m = legalT[(Math.random() * legalT.length) | 0];
@@ -283,7 +290,7 @@ console.log('\n--- is it actually playable? ---');
       if (over) break;
       const n = g.legalMoves().length;
       if (n === 0) { zeroLegal = plies; break; }      // would be a contradiction
-      const r = ai.think(1);
+      const r = fullDepth(() => ai.think(1));
       if (!r) break;
       g.make(r.move);
       plies++;
