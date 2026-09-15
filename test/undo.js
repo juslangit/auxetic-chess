@@ -56,6 +56,9 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
     finished: gameFinished, shown: ${mateShown}, solid: view.isSolid })`));
   ok(mated.finished && mated.shown && mated.solid, 'setup: checkmate text up, board shut',
      `text shown: ${mated.shown}, solid: ${mated.solid}`);
+  // Ra1# is a turn where the blocks held. That note used to overwrite the result.
+  const mateDetail = await s.eval(`document.getElementById('detail').textContent`);
+  ok(mateDetail === 'Checkmate by White', 'the result line is not overwritten', `"${mateDetail}"`);
   await pressU();
   await sleep(300);
   const after = JSON.parse(await s.eval(`JSON.stringify({
@@ -165,6 +168,23 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   for (let i = 0; i < 60 && (await s.eval(`game.moveLog.length`)) < 3; i++) await sleep(150);
   const goesOn = await s.eval(`game.moveLog.length`);
   ok(goesOn === 3, 'and the game carries on', `${goesOn} plies`);
+
+  // ---- 5. shortcuts: plain f flips, Cmd+F / Ctrl+F leave the board alone ----
+  const flipped = () => s.eval(`view.flipped`);
+  const key = (k, modifiers = 0) => s.send('Input.dispatchKeyEvent',
+    { type: 'keyDown', key: k, code: 'Key' + k.toUpperCase(), modifiers });
+  // Checked one at a time: pressing both and looking once would pass even when
+  // each one flips, because two flips cancel out.
+  const f0 = await flipped();
+  await key('f', 4); await sleep(100);                          // 4 = Meta (Cmd)
+  const afterCmd = await flipped();
+  await key('f', 2); await sleep(100);                          // 2 = Ctrl
+  const afterCtrl = await flipped();
+  await key('f'); await sleep(100);
+  const afterPlain = await flipped();
+  await key('f'); await sleep(100);                             // flip back
+  ok(afterCmd === f0 && afterCtrl === f0 && afterPlain !== f0, 'Cmd+F and Ctrl+F do not flip, plain f does',
+     `Cmd+F ${afterCmd === f0 ? 'no flip' : 'FLIPPED'}, Ctrl+F ${afterCtrl === f0 ? 'no flip' : 'FLIPPED'}, f ${afterPlain !== f0 ? 'flipped' : 'no flip'}`);
 
   console.log('\nconsole errors:', errs().length ? errs() : 'none');
   console.log(`${pass} passed, ${fail} failed`);

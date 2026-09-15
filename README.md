@@ -165,7 +165,8 @@ stop back. Stopped moves are marked `STOP` in the move list.
 In the engine a stop is part of the move -- the same move with a flag -- so one
 move is still one undo record, and the computer weighs "Nf3" against "Nf3 and
 stop the board" like any other pair of moves. It values an unused stop at one
-pawn, so it only spends one when stopping wins more than that, and it considers
+pawn, so it only spends one when stopping wins more than that -- which can be
+move one, since the turning board is sharp from the start, and it considers
 pressing a stop for its own move and your reply, which keeps its search as deep
 as before. It always knows when yours is running. The count is `STOPS_PER_GAME`
 at the top of `js/main.js`.
@@ -175,7 +176,7 @@ at the top of `js/main.js`.
 | File | What it holds |
 |---|---|
 | `js/chess.js` | Rules engine. 0x88 board, move generation, SAN, FEN |
-| `js/ai.js` | Negamax, alpha-beta, quiescence, killer moves, tapered eval |
+| `js/ai.js` | Negamax, alpha-beta, quiescence, killer moves, repetition, tapered eval; under the twist each piece is scored by the average of its block's four squares |
 | `js/pieces.js` | Piece artwork, baked to offscreen sprites |
 | `js/board.js` | The auxetic geometry and the canvas renderer |
 | `js/main.js` | Game flow, input, the side panel |

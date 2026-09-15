@@ -6,10 +6,14 @@ const VALUE = { [PAWN]: 100, [KNIGHT]: 320, [BISHOP]: 330, [ROOK]: 500, [QUEEN]:
 const MATE = 30000;
 
 /* What an unused stop is worth, in centipawns: one pawn. Without a price the
-   search spends a stop for any gain at all. The piece-square tables are plain
-   chess, so a board that stops turning keeps pieces where those tables like
-   them, and at 35 that illusion alone made it stop on move one. At a pawn it
-   keeps them until stopping wins something real. */
+   search would spend a stop for any gain at all, however small. With it, a stop
+   is only pressed when stopping is worth more than keeping it.
+
+   That still includes move one. The turning board is sharp from the start --
+   1.Nf3, twist, ...Bc4+ -- and even counting material alone, a stop on the first
+   move comes out about two pawns better by depth 6. That is the search being
+   right about this variant, not an artefact; see the orbit tables below for the
+   artefact that *was* there. */
 const STOP_VALUE = 100;
 
 /* How many plies deep the search considers stops: its own move and the reply.
@@ -104,6 +108,45 @@ function pstIndex(s, color) {
   return color === WHITE ? (7 - r) * 8 + f : r * 8 + f;
 }
 
+/* The tables above are plain chess: they assume a piece stays where it stands.
+   On this board it does not. Every move the block turns and carries the piece
+   one cell round its four squares, so where it stands right now is one quarter
+   of the story. Scoring the square it happens to be on made a board that stops
+   turning look better than it is -- pieces "kept" on good squares -- and the
+   deeper the search looked, the bigger that illusion grew, until spending a
+   stop on move one looked like the best move on the board.
+
+   So under the twist a piece is scored by the average of the table over the
+   four squares its block carries it through. A stop changes which of the four
+   it is on, never the average, so it no longer looks like a gain by itself;
+   what is left is the real effect a stop has on the game.
+
+   Built once, as tables indexed by 0x88 square: [colour][type] -> Float64Array.
+   The plain ones are the same numbers re-indexed, so the evaluation reads both
+   the same way. */
+function buildPst(orbit) {
+  const mid = [[], []], end = [null, null];
+  const value = (table, s, c) => {
+    if (!orbit) return table[pstIndex(s, c)];
+    let sum = 0, x = s;
+    for (let k = 0; k < 4; k++) { sum += table[pstIndex(x, c)]; x = twistForward(x); }
+    return sum / 4;
+  };
+  for (const c of [WHITE, BLACK]) {
+    for (const t of [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING]) {
+      const a = new Float64Array(128);
+      for (let s = 0; s < 128; s++) if ((s & 0x88) === 0) a[s] = value(PST_MID[t], s, c);
+      mid[c][t] = a;
+    }
+    const e = new Float64Array(128);
+    for (let s = 0; s < 128; s++) if ((s & 0x88) === 0) e[s] = value(PST_KING_END, s, c);
+    end[c] = e;
+  }
+  return { mid, end };
+}
+const PST_PLAIN = buildPst(false);
+const PST_ORBIT = buildPst(true);
+
 class AI {
   constructor(game) {
     this.game = game;
@@ -130,6 +173,7 @@ class AI {
   evaluate() {
     const g = this.game;
     const ph = this.phase();
+    const pst = g.twist ? PST_ORBIT : PST_PLAIN;
     let score = 0;
     const pawnFiles = [new Int8Array(8), new Int8Array(8)];
     const bishops = [0, 0];
@@ -140,11 +184,10 @@ class AI {
         const p = g.board[s];
         if (p === EMPTY) continue;
         const c = colorOf(p), t = typeOf(p);
-        const i = pstIndex(s, c);
         let v = VALUE[t];
         v += (t === KING)
-          ? PST_MID[KING][i] * (1 - ph) + PST_KING_END[i] * ph
-          : PST_MID[t][i];
+          ? pst.mid[c][KING][s] * (1 - ph) + pst.end[c][s] * ph
+          : pst.mid[c][t][s];
         score += c === WHITE ? v : -v;
         if (t === PAWN) pawnFiles[c][f]++;
         if (t === BISHOP) bishops[c]++;
@@ -210,9 +253,33 @@ class AI {
     return alpha;
   }
 
+  /* Has the current position already happened, earlier in this line or in the
+     game? Then it counts as a draw here. Without this the search could not see
+     a repetition coming: winning, it would shuffle into a draw it thought was
+     still a win; losing, it would miss the draw that saves it.
+
+     Only positions since the last irreversible move can match -- a capture, a
+     promotion (by move or by carry) or a spent stop changes the position for
+     good. A pawn push is not on that list, because here the board can carry a
+     pawn back. The key is built lazily and only compared against positions
+     with the same side to move. */
+  repeats() {
+    const g = this.game, h = g.history;
+    let key = null;
+    for (let i = h.length - 1; i >= 0; i--) {
+      const e = h[i];
+      if ((e.move.flags & (F_CAPTURE | F_PROMO | F_STOP)) || e.rotPromos) return false;
+      if ((h.length - i) % 2 !== 0) continue;
+      if (key === null) key = g.positionKey();
+      if (e.key === key) return true;
+    }
+    return false;
+  }
+
   negamax(depth, alpha, beta, ply) {
     if ((this.nodes & 1023) === 0 && Date.now() > this.deadline) { this.aborted = true; return 0; }
     if (ply >= MAX_PLY) return this.evaluate();
+    if (this.repeats()) return 0;
     if (depth <= 0) return this.quiesce(alpha, beta);
     this.nodes++;
 
@@ -276,12 +343,19 @@ class AI {
       const bi = ordered.findIndex((m) => m.from === best.from && m.to === best.to && m.promo === best.promo && m.flags === best.flags);
       if (bi > 0) ordered.unshift(ordered.splice(bi, 1)[0]);
 
+      /* Each root move is searched against the best score so far, less the
+         jitter margin, instead of with a wide-open window. A move that cannot
+         beat that bar is cut off as soon as that is certain rather than scored
+         exactly -- which is most of them, and most of the time. Scores above the
+         bar are exact; one that comes back AT the bar only says "no better than
+         this", so it is marked inexact and kept out of the jitter pool. */
       for (const m of ordered) {
+        const bar = localScore - cfg.jitter;
         g.make(m);
-        const score = -this.negamax(depth - 1, -Infinity, Infinity, 1);
+        const score = -this.negamax(depth - 1, -Infinity, -bar, 1);
         g.unmake();
         if (this.aborted) break;
-        scored.push({ m, score });
+        scored.push({ m, score, exact: score > bar });
         if (score > localScore) { localScore = score; localBest = m; }
       }
 
@@ -291,7 +365,7 @@ class AI {
       // At the casual level, pick randomly among moves close to the best so the
       // engine feels human instead of repeating one line forever.
       if (cfg.jitter > 0) {
-        const pool = scored.filter((x) => x.score >= localScore - cfg.jitter);
+        const pool = scored.filter((x) => x.exact && x.score >= localScore - cfg.jitter);
         localBest = pool[(Math.random() * pool.length) | 0].m;
         localScore = scored.find((x) => x.m === localBest).score;
       }
