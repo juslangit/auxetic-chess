@@ -19,20 +19,33 @@
       <p>Promote to</p>
       <div id="promo-choices" class="promo-choices"></div>
     </div>
+
+    <div id="mate" class="mate" hidden>
+      <div class="mate-card">
+        <span id="mate-king" class="mate-king w">&#9818;</span>
+        <h2>Checkmate</h2>
+        <p id="mate-winner">White wins</p>
+      </div>
+    </div>
   </section>
 
   <aside class="panel">
     <header class="brand">
       <h1>Auxetic Chess</h1>
       <p class="sub">Chess where every 2&times;2 block turns a quarter after each
-      move, carrying the pieces with it. Sixteen hinged tiles that also bloom
-      open to twice the area.</p>
+      move, carrying the pieces round with it &mdash; pawns too. A pawn still
+      only ever moves forward, wherever the board puts it.</p>
     </header>
 
     <div class="statusbox">
       <strong id="status">Unfolding</strong>
       <span id="detail"></span>
     </div>
+
+    <button id="stop" class="stop-btn" disabled>
+      <span id="stop-title" class="stop-title">Stop turning</span>
+      <span id="stop-sub" class="stop-sub">3 left</span>
+    </button>
 
     <div class="captures">
       <div class="cap-row">
@@ -51,22 +64,19 @@
       <div class="row">
         <label for="level">Opponent</label>
         <select id="level">
-          <option value="0">Casual</option>
-          <option value="1">Club</option>
-          <option value="2" selected>Strong</option>
-          <option value="3">Brutal</option>
+          <option value="hotseat">Two players</option>
+          <option value="0">Computer &mdash; casual</option>
+          <option value="1">Computer &mdash; club</option>
+          <option value="2" selected>Computer &mdash; strong</option>
+          <option value="3">Computer &mdash; brutal</option>
         </select>
       </div>
-      <div class="row">
+      <div class="row" id="side-row">
         <label for="side">You play</label>
         <select id="side">
           <option value="white" selected>White</option>
           <option value="black">Black</option>
         </select>
-      </div>
-      <div class="row slider">
-        <label for="fold">Fold <span id="fold-val">45&deg;</span></label>
-        <input id="fold" type="range" min="0" max="100" value="100">
       </div>
       <div class="row buttons">
         <button id="new-game" class="primary">New game</button>
@@ -78,9 +88,12 @@
     <ol id="moves" class="moves"></ol>
 
     <footer class="foot">
-      <p><span class="k">theta</span> drives the whole board:
-      pitch <span class="k">d = a&#8730;2&#183;cos(45&deg;+&theta;)</span>.
-      At 0&deg; the tiles sit flush; at 45&deg; the lattice is open and the area has doubled.</p>
+      <p>A block cycles its contents <span class="k">a1&rarr;a2&rarr;b2&rarr;b1</span>,
+      &mdash; so a piece on a4 is carried to b4 &mdash; and a twist can never
+      capture and nothing leaves its block.</p>
+      <p>The board also folds, on
+      <span class="k">d = a&#8730;2&#183;cos(45&deg;+&theta;)</span>: at 0&deg; the
+      tiles sit flush, at 45&deg; the lattice is open and the area has doubled.</p>
       <p class="credit">After the 3D-printed original by <strong>Ruven Bals</strong>.</p>
     </footer>
   </aside>

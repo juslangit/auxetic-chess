@@ -17,6 +17,8 @@ const ROOK_OFF = [16, -16, 1, -1];
 
 // Move flags
 const F_CAPTURE = 1, F_EP = 2, F_CASTLE_K = 4, F_CASTLE_Q = 8, F_DOUBLE = 16, F_PROMO = 32;
+// Played with "stop turning" pressed. See `canStop`.
+const F_STOP = 64;
 
 // Castling-right bits
 const CR_WK = 1, CR_WQ = 2, CR_BK = 4, CR_BQ = 8;
@@ -32,15 +34,29 @@ const onBoard = (s) => (s & 0x88) === 0;
 const FILES = 'abcdefgh';
 const squareName = (s) => FILES[fileOf(s)] + (rankOf(s) + 1);
 
-/* The twist. Every 2x2 block of the board turns a quarter, carrying whatever
-   stands on it, so within a block the contents move (u,v) -> (v, 1-u), where
-   u and v are the file and rank offsets inside the block. On the board that is
-   a1 -> a2 -> b2 -> b1 -> a1, and it has period 4.
+/* The twist. Every 2x2 block of the board turns a quarter and carries whatever
+   is standing on it -- every piece, pawns included. The four squares of a block
+   in the order content travels are a1, a2, b2, b1, so within the block
 
-   Note that this maps the checkerboard onto its own colour inverse: every block
-   is L D / D L, and a quarter turn makes it D L / L D. Turning all sixteen
+       a1 -> a2 -> b2 -> b1 -> a1          and e.g. a4 -> b4
+
+   which is the plain quarter turn: one cell round, always, for everything. It
+   is a permutation of four squares, so a twist can never capture, nothing ever
+   leaves its block or enters one, and four turns is the identity.
+
+   A pawn is carried like anything else. Its *moves* are unaffected -- a pawn
+   only ever moves forward, wherever the board has put it -- which is what keeps
+   "a pawn never moves left, right or back" true while the board still turns it
+   round.
+
+   Note that a quarter turn maps the checkerboard onto its own colour inverse:
+   every block is L D / D L, and turning it gives D L / L D. Turning all sixteen
    flips all 64 squares, so the board stays a regular checkerboard with the two
    colours swapped. The disorder is in the pieces, not the pattern. */
+
+/* The quarter turn, (u,v) -> (v, 1-u), where u and v are the file and rank
+   offsets inside the block. This is both the geometry the renderer turns the
+   tile by and the permutation the engine applies to the board. */
 function twistForward(s) {
   const f = s & 7, r = s >> 4, u = f & 1, v = r & 1;
   return (r - v + 1 - u) * 16 + (f - u + v);
@@ -56,6 +72,9 @@ class Chess {
     // Variant switch. Off by default so the plain rules engine -- and the perft
     // suite that proves it -- are unaffected.
     this.twist = false;
+    // Stops each side gets per game. 0 by default, for the same reason as the
+    // twist: the existing suites keep testing exactly what they always did.
+    this.stopsPerGame = 0;
     this.reset();
   }
 
@@ -67,6 +86,7 @@ class Chess {
     this.halfmove = 0;        // plies since last pawn move or capture
     this.fullmove = 1;
     this.kingSq = [E1, E8];
+    this.resetStops();
     this.history = [];        // undo records
     this.moveLog = [];        // {san, move, fenKey} for the sidebar
     this.repetition = new Map();
@@ -87,7 +107,10 @@ class Chess {
     for (let r = 7; r >= 0; r--) {
       for (let f = 0; f < 8; f++) k += String.fromCharCode(65 + this.board[sq(f, r)]);
     }
-    return k + this.turn + ':' + this.castling + ':' + this.ep;
+    // Stops are part of the position: the same board with a stop running, or
+    // with different stops left, is not a repeat.
+    return k + this.turn + ':' + this.castling + ':' + this.ep + ':' +
+      this.stopsLeft[WHITE] + ',' + this.stopsLeft[BLACK] + ',' + this.stopPlies;
   }
 
   pushRepetition() {
@@ -102,12 +125,15 @@ class Chess {
 
   /* ---- the twist ---- */
 
-  // Turn every 2x2 block a quarter. `dir` 1 forward, -1 to put it back.
+  /* Turn every 2x2 block a quarter. `dir` 1 forward, -1 to put it back.
+
+     A plain 4-cycle per block, applied to every piece alike -- pawns are
+     carried too. Four writes forward, the same four in reverse to undo. */
   rotateAllBlocks(dir) {
     const b = this.board;
     for (let r0 = 0; r0 < 8; r0 += 2) {
       for (let f0 = 0; f0 < 8; f0 += 2) {
-        const BL = r0 * 16 + f0, BR = BL + 1, TL = BL + 16, TR = TL + 1;
+        const BL = r0 * 16 + f0, TL = BL + 16, TR = BL + 17, BR = BL + 1;
         if (dir > 0) {
           const t = b[TL];
           b[TL] = b[BL]; b[BL] = b[BR]; b[BR] = b[TR]; b[TR] = t;
@@ -119,6 +145,49 @@ class Chess {
     }
   }
 
+  /* Where the content of `s` goes on the next twist, and where it came from on
+     the last one. The renderer uses the preimage to sweep each piece out of the
+     square it was carried from. */
+  twistImage(s) { return twistForward(s); }
+  twistPreimage(s) { return twistBack(s); }
+
+  /* Apply the twist at the end of a move. Amends the undo record that `make`
+     has already pushed, so one record still covers one whole turn. */
+  applyTwist() {
+    const h = this.history[this.history.length - 1];
+
+    this.rotateAllBlocks(1);
+    this.kingSq[WHITE] = twistForward(this.kingSq[WHITE]);
+    this.kingSq[BLACK] = twistForward(this.kingSq[BLACK]);
+
+    // A double push cannot be answered en passant once everything has moved.
+    this.ep = -1;
+
+    /* A pawn carried onto the far rank promotes to a queen. No choice is
+       offered because it is nobody's move. Recorded so unmake can put the pawn
+       back. */
+    let promos = null;
+    for (let f = 0; f < 8; f++) {
+      const w = 7 * 16 + f;
+      if (this.board[w] === PAWN) { (promos || (promos = [])).push(w); this.board[w] = QUEEN; }
+      if (this.board[f] === (PAWN | 8)) { (promos || (promos = [])).push(f); this.board[f] = QUEEN | 8; }
+    }
+    h.rotPromos = promos;
+    h.twisted = true;
+
+    this.refreshCastlingRights();
+  }
+
+  // Undo the twist: un-promote whatever the carry promoted, then turn back.
+  undoTwist(h) {
+    if (h.rotPromos) {
+      for (const sq of h.rotPromos) {
+        this.board[sq] = PAWN | (colorOf(this.board[sq]) === WHITE ? 0 : 8);
+      }
+    }
+    this.rotateAllBlocks(-1);
+  }
+
   // A twist can carry a king or a rook off its home square, which forfeits the
   // matching right. Recomputed from occupancy rather than tracked.
   refreshCastlingRights() {
@@ -128,32 +197,6 @@ class Chess {
     if (this.board[E8] !== (KING | 8)) this.castling &= ~(CR_BK | CR_BQ);
     if (this.board[H8] !== (ROOK | 8)) this.castling &= ~CR_BK;
     if (this.board[A8] !== (ROOK | 8)) this.castling &= ~CR_BQ;
-  }
-
-  /* Apply the twist at the end of a move. Amends the undo record that `make`
-     has already pushed, so one record still covers one whole turn. */
-  applyTwist() {
-    const h = this.history[this.history.length - 1];
-    this.rotateAllBlocks(1);
-    this.kingSq[WHITE] = twistForward(this.kingSq[WHITE]);
-    this.kingSq[BLACK] = twistForward(this.kingSq[BLACK]);
-
-    // A double push cannot be answered en passant once everything has moved.
-    this.ep = -1;
-
-    // A pawn carried onto the far rank promotes. There is no choice to offer:
-    // it is not anybody's move.
-    let promos = null;
-    for (let f = 0; f < 8; f++) {
-      const w = 7 * 16 + f;
-      if (this.board[w] === PAWN) { (promos || (promos = [])).push(w); this.board[w] = QUEEN; }
-      const b = f;
-      if (this.board[b] === (PAWN | 8)) { (promos || (promos = [])).push(b); this.board[b] = QUEEN | 8; }
-    }
-    h.rotPromos = promos;
-    h.twisted = true;
-
-    this.refreshCastlingRights();
   }
 
   /* Run the twist if it is safe to.
@@ -193,14 +236,30 @@ class Chess {
     }
   }
 
-  // Undo the twist: un-promote, then turn every block back.
-  undoTwist(h) {
-    if (h.rotPromos) {
-      for (const s of h.rotPromos) {
-        this.board[s] = PAWN | (colorOf(this.board[s]) === WHITE ? 0 : 8);
-      }
-    }
-    this.rotateAllBlocks(-1);
+  /* ---- stop turning ----
+
+     Before moving, a player may press "stop turning". The board then does not
+     turn after that move, nor after the opponent's reply; it turns again from
+     the move after. So a stop always covers exactly two moves, whoever presses:
+
+         White presses:  e4 (no turn)   ...e5 (no turn)   Nf3 (turns)
+         Black presses:  ...e5 (no turn)  Nf3 (no turn)  ...Nc6 (turns)
+
+     Each side has `stopsPerGame` of them, and one cannot be pressed while
+     another is still running, so stops never chain.
+
+     A stop is part of the move -- the same move with the F_STOP flag -- rather
+     than a separate action. That keeps one move = one undo record, and it lets
+     the search weigh "play Nf3" against "play Nf3 and stop the board" like any
+     other pair of moves. */
+
+  resetStops() {
+    this.stopsLeft = [this.stopsPerGame, this.stopsPerGame];
+    this.stopPlies = 0;       // moves still to come with the board stopped
+  }
+
+  canStop() {
+    return this.twist && this.stopPlies === 0 && this.stopsLeft[this.turn] > 0;
   }
 
   /* ---- attack detection ---- */
@@ -248,7 +307,7 @@ class Chess {
   /* ---- move generation ---- */
 
   // Pseudo-legal moves; `capturesOnly` is used by quiescence search.
-  generate(capturesOnly = false) {
+  generate(capturesOnly = false, stops = true) {
     const moves = [];
     const us = this.turn, them = us ^ 1;
     const mine = us === WHITE ? 0 : 8;
@@ -343,6 +402,18 @@ class Chess {
       }
     }
 
+    // Every move can also be played with a stop. Not in captures-only
+    // generation: quiescence is about settling exchanges, not planning. The
+    // search may also leave them out deeper in the tree (`stops` false), since
+    // doubling every move at every level costs a whole ply of depth.
+    if (stops && !capturesOnly && this.canStop()) {
+      const n = moves.length;
+      for (let i = 0; i < n; i++) {
+        const m = moves[i];
+        moves.push({ from: m.from, to: m.to, flags: m.flags | F_STOP, promo: m.promo });
+      }
+    }
+
     return moves;
   }
 
@@ -376,6 +447,7 @@ class Chess {
       halfmove: this.halfmove, fullmove: this.fullmove,
       kingSq: this.kingSq.slice(),
       key: this.positionKey(),
+      stopW: this.stopsLeft[WHITE], stopB: this.stopsLeft[BLACK], stopPlies: this.stopPlies,
     });
 
     if (m.flags & F_EP) this.board[m.to + (us === WHITE ? -16 : 16)] = EMPTY;
@@ -407,9 +479,20 @@ class Chess {
     if (us === BLACK) this.fullmove++;
     this.turn = them;
 
+    // A stop covers this move and the reply, so two moves go by unturned.
+    if (m.flags & F_STOP) {
+      this.stopsLeft[us]--;
+      this.stopPlies = 2;
+    }
+
     // The twist runs inside make, which is what makes the variant real: move
     // generation, check, mate and the whole search see it for free.
-    if (this.twist) this.tryTwist(us, them);
+    if (this.stopPlies > 0) {
+      this.stopPlies--;
+      this.history[this.history.length - 1].stopped = true;
+    } else if (this.twist) {
+      this.tryTwist(us, them);
+    }
   }
 
   unmake() {
@@ -442,6 +525,9 @@ class Chess {
     this.halfmove = h.halfmove;
     this.fullmove = h.fullmove;
     this.kingSq = h.kingSq;
+    this.stopsLeft[WHITE] = h.stopW;
+    this.stopsLeft[BLACK] = h.stopB;
+    this.stopPlies = h.stopPlies;
     this.turn = us;
     return h;
   }
@@ -554,6 +640,7 @@ Chess.prototype.loadFEN = function (fen) {
     : sq(FILES.indexOf(epField[0]), +epField[1] - 1);
   this.halfmove = half ? +half : 0;
   this.fullmove = full ? +full : 1;
+  this.resetStops();
   this.pushRepetition();
   return this;
 };

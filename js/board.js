@@ -330,13 +330,16 @@ class BoardView {
 
   setTwistAngle(v) { this.twistAnim = null; this.twistAngle = v; }
 
-  // Progress of the running twist, 0 to 90 degrees.
-  twistAlpha(now) {
+  // Eased progress of the running twist, 0 to 1.
+  twistProgress(now) {
     const tw = this.twistAnim;
     if (!tw) return 0;
     const t = Math.min(1, Math.max(0, (now - tw.t0) / tw.dur));
-    return tw.ease(t) * (Math.PI / 2);
+    return tw.ease(t);
   }
+
+  // How far the tile paint has turned into the running twist, 0 to 90 degrees.
+  twistAlpha(now) { return this.twistProgress(now) * (Math.PI / 2); }
 
   // Slide pieces along their move. `parts` lets castling move king and rook together.
   animateMove(parts, dur = 210) {
@@ -501,49 +504,62 @@ class BoardView {
     }
   }
 
-  /* Where every piece is drawn.
+  /* Where a piece is drawn, and why it is not simply "rotate by the twist angle".
 
      Two motions can be running. The move slide carries the piece that was just
-     played from its old square to its new one. The twist then swings every
-     piece a quarter turn about its tile centre.
+     played from its old square to its new one. The twist then sweeps each piece
+     round its tile centre.
 
-     The engine applies the move and the twist together inside `make`, so by the
-     time we draw, the board has already moved on. The piece's position at the
-     start of the transition is therefore the square it came FROM -- twistBack --
-     and rotating that by the live angle lands exactly on its current square when
-     the quarter turn completes. */
-  drawPieces(now) {
-    const ctx = this.ctx;
-    const alpha = this.twistAlpha(now);
+     The sweep is derived, not assumed: each piece turns by the actual angle
+     from the square it was carried out of to the square it is on. With the
+     plain quarter turn that comes to 90 degrees for everything, but deriving it
+     is what makes the animation land exactly on the square the engine chose
+     rather than wherever 90 degrees happens to point. Hard-coding the angle is
+     how a piece ends up beside its square and snaps into place at the end. */
+  piecePosition(sqIdx, now) {
     const twisting = !!this.twistAnim;
+    const home = twisting ? this.game.twistPreimage(sqIdx) : sqIdx;
+    const L = this.squareLayout(home);
+    let x = L.x, y = L.y, lift = 0;
+
     const anim = this.pieceAnim;
-    const slide = anim ? easeOutCubic(Math.min(1, (now - anim.t0) / anim.dur)) : 1;
-
-    for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
-      const sqIdx = r * 16 + f;
-      const p = this.game.board[sqIdx];
-      if (p === EMPTY) continue;
-
-      const home = twisting ? twistBack(sqIdx) : sqIdx;
-      const L = this.squareLayout(home);
-      let x = L.x, y = L.y, lift = 0;
-
-      const part = anim && anim.parts.find((q) => q.to === home);
+    if (anim) {
+      const slide = easeOutCubic(Math.min(1, (now - anim.t0) / anim.dur));
+      const part = anim.parts.find((q) => q.to === home);
       if (part) {
         const A = this.squareLayout(part.from);
         x = A.x + (L.x - A.x) * slide;
         y = A.y + (L.y - A.y) * slide;
         lift = Math.sin(slide * Math.PI) * L.size * 0.10;
       }
+    }
 
-      if (alpha) {
-        const c = Math.cos(alpha), sn = Math.sin(alpha);
-        const dx = x - L.tile.cx, dy = y - L.tile.cy;
-        x = L.tile.cx + dx * c - dy * sn;
-        y = L.tile.cy + dx * sn + dy * c;
-      }
+    if (twisting && home !== sqIdx) {
+      const cx = L.tile.cx, cy = L.tile.cy;
+      const target = this.squareLayout(sqIdx);
+      const from = Math.atan2(L.y - cy, L.x - cx);
+      const to = Math.atan2(target.y - cy, target.x - cx);
+      // always sweep the way the tile turns, so 0 means "already there"
+      const TAU = Math.PI * 2;
+      const sweep = ((to - from) % TAU + TAU) % TAU;
+      const ang = sweep * this.twistProgress(now);
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      const dx = x - cx, dy = y - cy;
+      x = cx + dx * c - dy * sn;
+      y = cy + dx * sn + dy * c;
+    }
 
-      drawPiece(ctx, typeOf(p), colorOf(p), x, y - lift, L.size * 0.96);
+    return { x, y, lift, size: L.size };
+  }
+
+  drawPieces(now) {
+    const ctx = this.ctx;
+    for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+      const sqIdx = r * 16 + f;
+      const p = this.game.board[sqIdx];
+      if (p === EMPTY) continue;
+      const P = this.piecePosition(sqIdx, now);
+      drawPiece(ctx, typeOf(p), colorOf(p), P.x, P.y - P.lift, P.size * 0.96);
     }
   }
 }

@@ -5,6 +5,20 @@
 const VALUE = { [PAWN]: 100, [KNIGHT]: 320, [BISHOP]: 330, [ROOK]: 500, [QUEEN]: 900, [KING]: 20000 };
 const MATE = 30000;
 
+/* What an unused stop is worth, in centipawns: one pawn. Without a price the
+   search spends a stop for any gain at all. The piece-square tables are plain
+   chess, so a board that stops turning keeps pieces where those tables like
+   them, and at 35 that illusion alone made it stop on move one. At a pawn it
+   keeps them until stopping wins something real. */
+const STOP_VALUE = 100;
+
+/* How many plies deep the search considers stops: its own move and the reply.
+   Every move comes in two versions while a stop is available, and doubling the
+   whole tree cost a full ply of depth; limited to two plies, depth is back to
+   what it was. Deeper in the tree a stop already pressed is still played out
+   exactly -- only *pressing* one is not considered. */
+const STOP_PLIES = 2;
+
 /* Hard ceilings on recursion. In plain chess the check extension terminates by
    itself -- you cannot stay in check indefinitely. Under the twist you can:
    kings are carried around every move, so check recurs, the extension fires at
@@ -149,6 +163,8 @@ class AI {
       }
     }
 
+    score += (g.stopsLeft[WHITE] - g.stopsLeft[BLACK]) * STOP_VALUE;
+
     return g.turn === WHITE ? score : -score;
   }
 
@@ -167,7 +183,8 @@ class AI {
   }
 
   order(moves, depth) {
-    for (const m of moves) m._s = this.scoreMove(m, depth);
+    // A move with a stop is tried just after the same move without one.
+    for (const m of moves) m._s = this.scoreMove(m, depth) - ((m.flags & F_STOP) ? 1 : 0);
     moves.sort((a, b) => b._s - a._s);
     return moves;
   }
@@ -205,7 +222,7 @@ class AI {
     if (inCheck && ply < this.rootDepth + EXTENSION_SLACK) depth++;
 
     let legal = 0, best = -Infinity;
-    for (const m of this.order(g.generate(), ply)) {
+    for (const m of this.order(g.generate(false, ply < STOP_PLIES), ply)) {
       g.make(m);
       if (g.isAttacked(g.kingSq[g.turn ^ 1], g.turn)) { g.unmake(); continue; }
       legal++;
@@ -256,7 +273,7 @@ class AI {
 
       // Search last iteration's best move first -- it usually still is.
       const ordered = this.order(root.slice(), 0);
-      const bi = ordered.findIndex((m) => m.from === best.from && m.to === best.to && m.promo === best.promo);
+      const bi = ordered.findIndex((m) => m.from === best.from && m.to === best.to && m.promo === best.promo && m.flags === best.flags);
       if (bi > 0) ordered.unshift(ordered.splice(bi, 1)[0]);
 
       for (const m of ordered) {

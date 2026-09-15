@@ -28,6 +28,9 @@ node ai_test.js
 echo "\n=== the twist, in the engine ==="
 node twist_test.js
 
+echo "\n=== stop turning, in the engine ==="
+node stop_test.js
+
 echo "\n=== browser: the game, played through the real UI ==="
 (cd .. && python3 -m http.server 8765 >/dev/null 2>&1 &)
 sleep 1
@@ -35,5 +38,17 @@ node gameplay.js; status=$?
 if [ "$status" -eq 0 ]; then
   echo "\n=== browser: the twist, played through the real UI ==="
   node twist_browser.js; status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  echo "\n=== browser: two-player mode ==="
+  node hotseat.js; status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  echo "\n=== browser: undo at awkward moments ==="
+  node undo.js; status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  echo "\n=== browser: stop turning ==="
+  node stop_browser.js; status=$?
 fi
 exit $status
