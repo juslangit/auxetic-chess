@@ -87,5 +87,29 @@ console.log('\n--- strength: level 3 must beat level 0 across a full game ---');
      'strong side is winning', `${plies} plies, white eval ${whiteAdv}, ${over ? over.type : 'ongoing'}`);
 }
 
+console.log('\n--- repetition: the search sees a draw coming ---');
+{
+  /* White is a queen up. After Ng1-f3 Ka8-b8 Nf3-g1, Black to move can play
+     Kb8-a8 and walk straight back into the starting position. For the losing
+     side that repeat is the best thing on the board: it scores 0, everything
+     else is a queen down. A search blind to repetition cannot tell. */
+  const g = new Chess();
+  g.loadFEN('k7/8/8/8/8/7Q/8/K5N1 w - - 0 1');
+  const byName = (from, to) => {
+    const idx = (n) => 'abcdefgh'.indexOf(n[0]) + (+n[1] - 1) * 16;
+    return g.legalMoves().find((m) => m.from === idx(from) && m.to === idx(to));
+  };
+  const ai = new AI(g);
+  g.make(byName('g1', 'f3')); g.make(byName('a8', 'b8'));
+  ok(!ai.repeats(), 'no repeat yet');
+  g.make(byName('f3', 'g1'));
+  g.make(byName('b8', 'a8'));
+  ok(ai.repeats(), 'back to the start: a repeat');
+  g.unmake();
+  const r = ai.think(2);
+  const san = r && g.toSAN(r.move);
+  ok(san === 'Ka8' && r.score === 0, 'losing side takes the repetition', `${san}, score ${r && r.score}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

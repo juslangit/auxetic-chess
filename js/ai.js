@@ -210,9 +210,33 @@ class AI {
     return alpha;
   }
 
+  /* Has the current position already happened, earlier in this line or in the
+     game? Then it counts as a draw here. Without this the search could not see
+     a repetition coming: winning, it would shuffle into a draw it thought was
+     still a win; losing, it would miss the draw that saves it.
+
+     Only positions since the last irreversible move can match -- a capture, a
+     promotion (by move or by carry) or a spent stop changes the position for
+     good. A pawn push is not on that list, because here the board can carry a
+     pawn back. The key is built lazily and only compared against positions
+     with the same side to move. */
+  repeats() {
+    const g = this.game, h = g.history;
+    let key = null;
+    for (let i = h.length - 1; i >= 0; i--) {
+      const e = h[i];
+      if ((e.move.flags & (F_CAPTURE | F_PROMO | F_STOP)) || e.rotPromos) return false;
+      if ((h.length - i) % 2 !== 0) continue;
+      if (key === null) key = g.positionKey();
+      if (e.key === key) return true;
+    }
+    return false;
+  }
+
   negamax(depth, alpha, beta, ply) {
     if ((this.nodes & 1023) === 0 && Date.now() > this.deadline) { this.aborted = true; return 0; }
     if (ply >= MAX_PLY) return this.evaluate();
+    if (this.repeats()) return 0;
     if (depth <= 0) return this.quiesce(alpha, beta);
     this.nodes++;
 
@@ -276,12 +300,19 @@ class AI {
       const bi = ordered.findIndex((m) => m.from === best.from && m.to === best.to && m.promo === best.promo && m.flags === best.flags);
       if (bi > 0) ordered.unshift(ordered.splice(bi, 1)[0]);
 
+      /* Each root move is searched against the best score so far, less the
+         jitter margin, instead of with a wide-open window. A move that cannot
+         beat that bar is cut off as soon as that is certain rather than scored
+         exactly -- which is most of them, and most of the time. Scores above the
+         bar are exact; one that comes back AT the bar only says "no better than
+         this", so it is marked inexact and kept out of the jitter pool. */
       for (const m of ordered) {
+        const bar = localScore - cfg.jitter;
         g.make(m);
-        const score = -this.negamax(depth - 1, -Infinity, Infinity, 1);
+        const score = -this.negamax(depth - 1, -Infinity, -bar, 1);
         g.unmake();
         if (this.aborted) break;
-        scored.push({ m, score });
+        scored.push({ m, score, exact: score > bar });
         if (score > localScore) { localScore = score; localBest = m; }
       }
 
@@ -291,7 +322,7 @@ class AI {
       // At the casual level, pick randomly among moves close to the best so the
       // engine feels human instead of repeating one line forever.
       if (cfg.jitter > 0) {
-        const pool = scored.filter((x) => x.score >= localScore - cfg.jitter);
+        const pool = scored.filter((x) => x.exact && x.score >= localScore - cfg.jitter);
         localBest = pool[(Math.random() * pool.length) | 0].m;
         localScore = scored.find((x) => x.m === localBest).score;
       }

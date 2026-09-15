@@ -420,6 +420,15 @@ class BoardView {
     return r * 16 + f;
   }
 
+  /* Is the painted square at tile slot (u,v) light? The tile sprite is light
+     where (u+v) is even, but the paint turns with the twist, and each quarter
+     turn swaps light and dark. So after an odd number of quarters the answer
+     flips. The move dots use this to pick a colour that shows up. */
+  slotIsLight(u, v) {
+    const quarters = Math.round(this.twistAngle / (Math.PI / 2));
+    return ((u + v) % 2 === 0) !== (quarters % 2 !== 0);
+  }
+
   /* Two transforms, deliberately.
 
      The tile body carries the printed checkerboard, so it turns with the twist.
@@ -444,7 +453,7 @@ class BoardView {
     const marks = [];
     for (let v = 0; v < 2; v++) for (let u = 0; u < 2; u++) {
       const sqIdx = this.screenToSquare(ii, jj, u, v);
-      const isLight = (u + v) % 2 === 0;
+      const isLight = this.slotIsLight(u, v);
       const sel = sqIdx === this.selected;
       const last = this.lastMove && (sqIdx === this.lastMove.from || sqIdx === this.lastMove.to);
       const chk = sqIdx === this.checkSquare;
