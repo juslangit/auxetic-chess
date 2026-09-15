@@ -78,6 +78,51 @@ html, body {
 .promo-btn .glyph.w { color: #f4f1ea; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
 .promo-btn .glyph.b { color: #20242b; text-shadow: 0 1px 0 rgba(255,255,255,0.18); }
 
+/* Checkmate announcement, over the board. The board stays shut underneath and
+   only lightly dimmed, so the mating position can still be read. */
+.mate {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 10, 14, 0.38);
+  pointer-events: none;
+  animation: mate-fade .35s ease-out both;
+}
+/* Same specificity trap as `.row[hidden]`. */
+.mate[hidden] { display: none; }
+.mate-card {
+  padding: 22px 48px 26px;
+  text-align: center;
+  background: rgba(20, 23, 29, 0.94);
+  border: 2px solid var(--accent);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7), 0 0 0 6px rgba(255, 196, 74, 0.12);
+  backdrop-filter: blur(8px);
+  animation: mate-pop .5s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+.mate-king { display: block; font-size: clamp(48px, 8vw, 80px); line-height: 1; }
+.mate-king.w { color: #f4f1ea; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
+.mate-king.b { color: #20242b; text-shadow: 0 0 1px rgba(255,255,255,0.7), 0 0 14px rgba(255,255,255,0.18); }
+.mate-card h2 {
+  margin: 6px 0 0;
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.mate-card p {
+  margin: 10px 0 0;
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 600;
+  color: var(--ink);
+}
+@keyframes mate-fade { from { opacity: 0; } }
+@keyframes mate-pop { from { opacity: 0; transform: scale(.85); } }
+
 /* ---- side panel ---- */
 
 .panel {
@@ -116,6 +161,42 @@ html, body {
 .statusbox strong { font-size: 15px; }
 .statusbox span { font-size: 11.5px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 
+/* Stop turning. Outlined when available, filled once pressed ("armed") so it is
+   unmistakable that the next move will stop the board. */
+.stop-btn {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 13px 14px;
+  color: var(--accent);
+  background: transparent;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  transition: background .12s, color .12s, opacity .12s;
+}
+.stop-btn:hover { background: rgba(255, 196, 74, 0.10); }
+.stop-btn.armed { background: var(--accent); color: var(--accent-ink); }
+.stop-btn.armed:hover { background: #ffd170; }
+.stop-btn.running { border-style: dashed; }
+.stop-btn:disabled { opacity: 0.42; cursor: default; background: transparent; }
+.stop-title { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
+.stop-sub { font-size: 12.5px; font-weight: 500; opacity: 0.9; }
+
+.moves .stop-mark {
+  margin-left: 5px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 3px;
+}
+
 .captures { display: flex; flex-direction: column; gap: 6px; }
 .cap-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
 .cap-label { color: var(--ink-dim); width: 70px; flex: none; }
@@ -127,6 +208,9 @@ html, body {
 
 .controls { display: flex; flex-direction: column; gap: 9px; }
 .row { display: flex; align-items: center; gap: 10px; }
+/* `.row` would otherwise beat the user agent's [hidden] rule on specificity,
+   so hiding a row would do nothing. */
+.row[hidden] { display: none; }
 .row label { font-size: 11.5px; color: var(--ink-dim); width: 70px; flex: none; }
 .row select {
   flex: 1;
@@ -139,33 +223,6 @@ html, body {
   border-radius: 8px;
   cursor: pointer;
 }
-.row.slider label { width: auto; min-width: 70px; }
-.row.slider #fold-val { color: var(--accent); font-variant-numeric: tabular-nums; font-family: var(--mono); }
-#fold {
-  flex: 1;
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--line);
-  cursor: pointer;
-}
-#fold::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 15px; height: 15px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: none;
-  cursor: grab;
-}
-#fold::-moz-range-thumb {
-  width: 15px; height: 15px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: none;
-  cursor: grab;
-}
-
 .buttons { gap: 7px; }
 button {
   flex: 1;

@@ -112,8 +112,14 @@ const ok = (c, msg, extra='') => { c?pass++:fail++; console.log(`${c?'PASS':'FAI
   ok(JSON.parse(mateState).finished && JSON.parse(mateState).san === 'Ra8#',
      'checkmate detected and announced', JSON.parse(mateState).status);
   await sleep(2600);
-  const bloomed = await s.eval(`Math.abs(view.theta / THETA_OPEN)`);
-  ok(bloomed > 0.9, 'board blooms open on game end', `theta at ${(bloomed*100).toFixed(0)}% of full`);
+  const mateView = JSON.parse(await s.eval(`JSON.stringify({
+    solid: view.isSolid, theta: view.theta,
+    shown: !document.getElementById('mate').hidden,
+    visible: getComputedStyle(document.getElementById('mate')).display !== 'none',
+    text: document.getElementById('mate').innerText.replace(/\\s+/g, ' ').trim() })`));
+  ok(mateView.solid, 'board stays shut on checkmate', `theta ${mateView.theta.toFixed(4)}`);
+  ok(mateView.shown && mateView.visible && /CHECKMATE/i.test(mateView.text) && /White wins/.test(mateView.text),
+     'checkmate text appears', mateView.text);
   await s.shot(__dirname + '/shots/checkmate.png');
 
   // ---- 6. undo restores the position exactly ----

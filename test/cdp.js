@@ -41,8 +41,15 @@ async function launch() {
 class Session {
   constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.events = []; }
 
+  /* Open a page with the HTTP cache disabled.
+
+     This matters more than it looks. The target is created on about:blank, the
+     cache is turned off, and only then do we navigate -- otherwise Chrome serves
+     the page and its scripts from cache and the suite happily tests code that
+     was edited minutes ago. Reusing a long-lived browser between runs (which
+     `launch` now does) makes that near-certain rather than occasional. */
   static async open(url) {
-    const r = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
+    const r = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: 'PUT' });
     const target = await r.json();
     const ws = new WebSocket(target.webSocketDebuggerUrl);
     const s = new Session(ws);
@@ -56,6 +63,11 @@ class Session {
       } else if (msg.method) s.events.push(msg);
     });
     await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', rej); });
+
+    await s.send('Network.enable');
+    await s.send('Network.setCacheDisabled', { cacheDisabled: true });
+    await s.send('Page.enable');
+    await s.send('Page.navigate', { url });
     return s;
   }
 

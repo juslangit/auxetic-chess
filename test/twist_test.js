@@ -5,7 +5,7 @@ const ctx = new Function(
   fs.readFileSync(H + 'chess.js', 'utf8') + '\n' + fs.readFileSync(H + 'ai.js', 'utf8') +
   '\n; return {Chess, AI, twistForward, twistBack, squareName, sq, PAWN, QUEEN, KING, ROOK,' +
   ' WHITE, BLACK, EMPTY, typeOf, colorOf, FILES};')();
-const { Chess, AI, twistForward, twistBack, squareName, PAWN, QUEEN, KING, WHITE, BLACK, EMPTY, typeOf, colorOf } = ctx;
+const { Chess, AI, twistForward, twistBack, squareName, PAWN, QUEEN, KING, ROOK, WHITE, BLACK, EMPTY, typeOf, colorOf } = ctx;
 
 let pass = 0, fail = 0;
 const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${msg.padEnd(46)}${extra}`); };
@@ -24,6 +24,10 @@ console.log('--- the permutation ---');
     if (got !== want) good = false;
   }
   ok(good, 'a1 -> a2 -> b2 -> b1 -> a1', trace.join(' '));
+
+  // the example Luqman gave: a4 is the top-left cell of the a3-b4 block
+  ok(squareName(twistForward(idx('a4'))) === 'b4',
+     'a4 is carried to b4', `a4 -> ${squareName(twistForward(idx('a4')))}`);
 
   // forward then back is identity, on every square
   let inverseOk = true;
@@ -158,30 +162,85 @@ console.log('\n--- legality is exactly normal chess ---');
   ok(safe, 'no legal move ever leaves your king attacked');
 }
 
+console.log('\n--- everything is carried, pawns included ---');
+{
+  /* The board turns and takes every piece with it -- one cell round its block,
+     the same for pawns as for anything else. Checked against an independent
+     rotation of the position rather than against itself. */
+  const g = new Chess(); g.twist = true;
+  const m = g.legalMoves().find((x) => !(x.flags & 1));
+  const before = Int8Array.from(g.board);
+  // apply just the move to a twist-free clone, then rotate it by hand
+  const clone = new Chess(); clone.twist = false;
+  clone.board = Int8Array.from(before);
+  clone.turn = WHITE; clone.castling = 15; clone.ep = -1;
+  clone.kingSq = [0x04, 0x74]; clone.history = [];
+  clone.make(clone.legalMoves().find((x) => x.from === m.from && x.to === m.to));
+  const expect = Int8Array.from(clone.board);
+  const rotated = new Int8Array(128);
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const sq = r * 16 + f;
+    rotated[twistForward(sq)] = expect[sq];
+  }
+  g.make(m);
+  let same = true;
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const sq = r * 16 + f;
+    if (g.board[sq] !== rotated[sq]) same = false;
+  }
+  ok(same, 'the board equals the move then a quarter turn of everything');
+
+  // a pawn really does travel
+  const h = new Chess(); h.twist = true;
+  h.make(h.legalMoves().find((x) => x.from === idx('a2') && x.to === idx('a4')));
+  const carried = h.legalMoves();      // a2-a4 then the twist: a4 -> b4
+  ok(typeOf(h.board[idx('b4')]) === PAWN && h.board[idx('a4')] === EMPTY,
+     'a pawn played to a4 is carried to b4',
+     `b4 holds a pawn: ${typeOf(h.board[idx('b4')]) === PAWN}, a4 empty: ${h.board[idx('a4')] === EMPTY}`);
+  void carried;
+}
+
+console.log('\n--- but a pawn only ever MOVES forward ---');
+{
+  /* Luqman's rule. The board may carry a pawn anywhere; the pawn's own moves
+     must always go up the board for White and down for Black, never sideways
+     and never backwards. Checked for every pawn in every position of a game. */
+  const g = new Chess(); g.twist = true;
+  let plies = 0, bad = null;
+  while (plies < 160 && !bad) {
+    const legal = g.legalMoves();
+    if (!legal.length) break;
+    for (const m of legal) {
+      const p = g.board[m.from];
+      if (typeOf(p) !== PAWN) continue;
+      const dr = (m.to >> 4) - (m.from >> 4);
+      const df = Math.abs((m.to & 7) - (m.from & 7));
+      const forward = colorOf(p) === WHITE ? dr > 0 : dr < 0;
+      // one step straight, two on the first push, or one diagonal to capture
+      if (!forward || df > 1) {
+        bad = `${squareName(m.from)}->${squareName(m.to)} at ply ${plies}`;
+        break;
+      }
+    }
+    g.make(legal[(Math.random() * legal.length) | 0]);
+    plies++;
+  }
+  ok(!bad, 'no pawn move is ever sideways or backwards',
+     bad || `checked every pawn move across ${plies} plies`);
+}
+
 console.log('\n--- a pawn carried to the far rank promotes ---');
 {
-  const g = new Chess(); g.twist = true;
-  // white pawn on b7: b7 is (f=1,r=6) -> twistForward -> (f=1-1+0, r=6-0+1-1)=a7? check by running
-  // find any position where a white pawn is carried to rank 8
-  let found = null;
-  for (let f = 0; f < 8; f++) {
-    for (let r = 6; r <= 7; r++) {
-      const from = r * 16 + f;
-      if (twistForward(from) >> 4 === 7) { found = { from, to: twistForward(from) }; break; }
-    }
-    if (found) break;
-  }
-  g.loadFEN('4k3/8/8/8/8/8/8/4K3 w - - 0 1');
+  const g = new Chess();
+  g.loadFEN('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
   g.twist = true;
-  g.board[found.from] = PAWN;
-  const m = g.legalMoves().find((x) => x.from === g.kingSq[WHITE]);
-  g.make(m);
-  const landed = g.board[found.to];
-  ok(typeOf(landed) === QUEEN && colorOf(landed) === WHITE,
-     'pawn carried onto rank 8 becomes a queen',
-     `${squareName(found.from)} -> ${squareName(found.to)}`);
+  const before = typeOf(g.board[6 * 16]) === PAWN;                 // a7
+  g.make(g.legalMoves().find((m) => m.from === g.kingSq[WHITE]));
+  const landed = g.board[7 * 16];                                  // a8
+  ok(before && typeOf(landed) === QUEEN && colorOf(landed) === WHITE,
+     'a pawn on a7 is carried to a8 and becomes a queen');
   g.unmake();
-  ok(typeOf(g.board[found.from]) === PAWN, 'and unmake turns it back into a pawn');
+  ok(typeOf(g.board[6 * 16]) === PAWN, 'and unmake turns it back into a pawn on a7');
 }
 
 console.log('\n--- the plain engine is untouched (twist off) ---');
@@ -207,24 +266,37 @@ console.log('\n--- the plain engine is untouched (twist off) ---');
 
 console.log('\n--- is it actually playable? ---');
 {
-  const g = new Chess(); g.twist = true;
-  const ai = new AI(g);
-  let plies = 0, minLegal = 999, sumLegal = 0, over = null;
-  const t0 = Date.now();
-  while (plies < 120) {
-    over = g.gameOver();
-    if (over) break;
-    const n = g.legalMoves().length;
-    minLegal = Math.min(minLegal, n); sumLegal += n;
-    const r = ai.think(1);
-    if (!r) break;
-    g.make(r.move);
-    plies++;
+  /* What "playable" means here is specifically: the twist does not freeze the
+     game. The first rule tried drew by stalemate on move 3 because every move
+     was illegal. So the thing to assert is that games reach a legitimate result
+     and that none of them dies early in a draw -- not that they last a certain
+     number of plies. A fast checkmate is a good outcome, not a deadlock. */
+  const results = [];
+  let earlyDraw = null, zeroLegal = null;
+
+  for (let gameNo = 0; gameNo < 3; gameNo++) {
+    const g = new Chess(); g.twist = true;
+    const ai = new AI(g);
+    let plies = 0, over = null;
+    while (plies < 100) {
+      over = g.gameOver();
+      if (over) break;
+      const n = g.legalMoves().length;
+      if (n === 0) { zeroLegal = plies; break; }      // would be a contradiction
+      const r = ai.think(1);
+      if (!r) break;
+      g.make(r.move);
+      plies++;
+    }
+    const how = over ? over.type : 'still going at 100';
+    results.push(`${how}@${plies}`);
+    const isDraw = over && over.type !== 'checkmate';
+    if (isDraw && plies < 20) earlyDraw = `${over.type} after only ${plies} plies`;
   }
-  const ms = Date.now() - t0;
-  ok(plies > 20 && minLegal > 0,
-     'a whole self-play game runs without deadlock',
-     `${plies} plies, ${(sumLegal / Math.max(1, plies)).toFixed(1)} legal moves avg, min ${minLegal}, ${over ? over.type : 'ongoing'}, ${ms}ms`);
+
+  ok(!earlyDraw && !zeroLegal,
+     'games reach a real result, none dies in an early draw',
+     earlyDraw || (zeroLegal !== null ? `no legal moves at ply ${zeroLegal}` : results.join('  ')));
 }
 
 console.log('\n--- search cost of the twist ---');

@@ -88,6 +88,97 @@ const QUARTER = Math.PI / 2;
   ok(C2.rookBefore && C2.rookAfter && C2.backOnA1,
      'a rook on a1 is carried to a2, and unmake returns it', JSON.stringify(C2));
 
+  // ---- 2b. a pushed pawn follows the rotation and stays there ----
+  /* Luqman's case: play a2-a4, the board turns, and the pawn must now be on b4
+     -- and still be there once the animation has finished, not back on a4.
+     Driven by clicks, and the drawn position is checked as well as the board. */
+  await setup(`window.__aiTurn = aiTurn; aiTurn = function () {};`);
+  await s.click(...await at('a2')); await sleep(140);
+  await s.click(...await at('a4'));
+  await waitSolid();
+  const pawnCarried = await s.eval(`(() => {
+    const idx = n => 'abcdefgh'.indexOf(n[0]) + (+n[1] - 1) * 16;
+    const name = i => 'abcdefgh'[i & 7] + ((i >> 4) + 1);
+    const A4 = idx('a4'), B4 = idx('b4');
+    const p = game.board[B4];
+    const onB4 = typeOf(p) === PAWN && colorOf(p) === WHITE;
+    // and it is DRAWN there, now the animation is over
+    const drawn = view.piecePosition(B4, performance.now());
+    const seat = view.squareLayout(B4);
+    const settled = Math.abs(drawn.x - seat.x) < 0.01 && Math.abs(drawn.y - seat.y) < 0.01;
+    const moves = game.legalMoves().filter(m => m.from === B4).map(m => {
+      const dr = (m.to >> 4) - (B4 >> 4), df = (m.to & 7) - (B4 & 7);
+      return name(m.to) + ':' + [dr > 0 ? 'forward' : dr < 0 ? 'BACK' : '',
+        df > 0 ? 'RIGHT' : df < 0 ? 'LEFT' : ''].filter(Boolean).join('+');
+    });
+    return JSON.stringify({ onB4, a4empty: game.board[A4] === 0, settled, moves,
+                            log: game.moveLog.map(x => x.san) });
+  })()`);
+  const CR = JSON.parse(pawnCarried);
+  ok(CR.onB4 && CR.a4empty && CR.settled,
+     'a2-a4 then the twist leaves the pawn on b4',
+     `on b4: ${CR.onB4}, a4 empty: ${CR.a4empty}, drawn there: ${CR.settled}`);
+  await s.eval(`aiTurn = window.__aiTurn;`);
+
+  // ---- 2c. every piece lands on its own square, with no snap at the end ----
+  /* The sweep must go to each piece's ACTUAL destination, which is not always a
+     quarter turn: pawns are frozen and the rest cycle among the free squares,
+     so a block like e1-f2 (pawns on e2 and f2) leaves the king and bishop in a
+     two-cycle -- half a turn. Rotating everything by 90 degrees puts them in the
+     wrong place and they snap when the animation ends.
+
+     Sampling piecePosition at the animation's start, middle and end catches
+     exactly that: start must equal the square each piece came from, end must
+     equal the square it is on, and a frozen pawn must not move at all. */
+  await setup(`window.__aiTurn = aiTurn; aiTurn = function () {};`);
+  const landing = await s.eval(`(() => {
+    const name = i => 'abcdefgh'[i & 7] + ((i >> 4) + 1);
+    const idx = n => 'abcdefgh'.indexOf(n[0]) + (+n[1] - 1) * 16;
+
+    const m = game.legalMoves().find(x => x.from === idx('b1') && x.to === idx('c3'));
+    game.make(m);
+    view.pieceAnim = null;                       // isolate the twist sweep
+    void view.twistOnce(1000, 0);
+    const tw = view.twistAnim;
+    const at = (frac) => tw.t0 + tw.dur * frac;
+
+    const near = (a, b) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+    const startWrong = [], endWrong = [], pawnMoved = [];
+    let halfTurns = 0, quarterTurns = 0, frozen = 0;
+
+    for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+      const sq = r * 16 + f;
+      const piece = game.board[sq];
+      if (!piece) continue;
+      const home = game.twistPreimage(sq);
+
+      // where it should be at each end of the sweep
+      if (!near(view.piecePosition(sq, at(0)), view.squareLayout(home))) startWrong.push(name(sq));
+      if (!near(view.piecePosition(sq, at(1)), view.squareLayout(sq))) endWrong.push(name(sq));
+
+      if (home === sq) {
+        frozen++;                                  // should never happen now
+      } else {
+        const L = view.squareLayout(home), T = view.squareLayout(sq), C = L.tile;
+        const TAU = Math.PI * 2;
+        const d = ((Math.atan2(T.y - C.cy, T.x - C.cx) - Math.atan2(L.y - C.cy, L.x - C.cx)) % TAU + TAU) % TAU;
+        if (Math.abs(d - Math.PI) < 0.01) halfTurns++;
+        else if (Math.abs(d - Math.PI / 2) < 0.01) quarterTurns++;
+      }
+    }
+    view.setTwistAngle(view.twistAngle);         // stop the animation cleanly
+    return JSON.stringify({ startWrong, endWrong, halfTurns, quarterTurns, frozen });
+  })()`);
+  const LD = JSON.parse(landing);
+  ok(LD.startWrong.length === 0, 'every piece starts on the square it came from',
+     LD.startWrong.length ? LD.startWrong.join(' ') : 'all correct');
+  ok(LD.endWrong.length === 0, 'every piece lands on its square, no snap',
+     LD.endWrong.length ? `wrong: ${LD.endWrong.join(' ')}` : 'all correct');
+  ok(LD.frozen === 0 && LD.quarterTurns > 0 && LD.halfTurns === 0,
+     'every piece travels exactly one quarter turn',
+     `${LD.quarterTurns} quarter, ${LD.halfTurns} half, ${LD.frozen} stayed put`);
+  await s.eval(`aiTurn = window.__aiTurn;`);
+
   // ---- 3. the animation runs, locks the board, and the paint tracks the engine ----
   await setup();
   const paint0 = await s.eval(`view.twistAngle`);

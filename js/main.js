@@ -1,6 +1,10 @@
 /* Game wiring: input, the AI turn, the move list, and the fold. */
 
+// Stops each player gets per game. Change this one number to change the rule.
+const STOPS_PER_GAME = 3;
+
 const game = new Chess();
+game.stopsPerGame = STOPS_PER_GAME;
 const ai = new AI(game);
 const canvas = document.getElementById('board');
 const view = new BoardView(canvas, game);
@@ -9,17 +13,25 @@ const el = (id) => document.getElementById(id);
 const ui = {
   status: el('status'), detail: el('detail'), moves: el('moves'),
   capW: el('cap-white'), capB: el('cap-black'),
-  fold: el('fold'), foldVal: el('fold-val'),
-  level: el('level'), side: el('side'),
+  level: el('level'), side: el('side'), sideRow: el('side-row'),
   promo: el('promo'), promoBtns: el('promo-choices'),
+  mate: el('mate'), mateKing: el('mate-king'), mateWinner: el('mate-winner'),
+  stop: el('stop'), stopTitle: el('stop-title'), stopSub: el('stop-sub'),
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Who is at the keyboard. In hotseat both sides are, and `playerColor` only
+   says which way up the board starts. Everything that used to compare against
+   `playerColor` asks `humanPlays` instead. */
 let playerColor = WHITE;
+const hotseat = () => ui.level.value === 'hotseat';
+const humanPlays = (color) => hotseat() || color === playerColor;
 let thinking = false;
 let pendingPromo = null;
 let gameFinished = false;
+// "Stop turning" pressed, waiting for the move it goes with.
+let stopArmed = false;
 // Bumped on every new game or position setup. A queued AI turn from an earlier
 // game carries the old epoch and is dropped, so it can never move for the player.
 let epoch = 0;
@@ -84,8 +96,9 @@ function refreshMoveList() {
   for (let i = 0; i < game.moveLog.length; i += 2) {
     const n = i / 2 + 1;
     const w = game.moveLog[i], b = game.moveLog[i + 1];
-    html += `<li><span class="n">${n}.</span><span class="m">${w.san}</span>` +
-            `<span class="m">${b ? b.san : ''}</span></li>`;
+    const mark = (e) => e && e.stopUsed ? '<span class="stop-mark">stop</span>' : '';
+    html += `<li><span class="n">${n}.</span><span class="m">${w.san}${mark(w)}</span>` +
+            `<span class="m">${b ? b.san : ''}${mark(b)}</span></li>`;
   }
   ui.moves.innerHTML = html;
   ui.moves.scrollTop = ui.moves.scrollHeight;
@@ -96,15 +109,46 @@ function setStatus(main, detail) {
   ui.detail.textContent = detail || '';
 }
 
+/* The stop button always describes one player: the side to move in two-player
+   mode, and you against the computer. Pressing it only arms it; the stop is
+   spent by the move you then play. */
+function refreshStopButton() {
+  const names = ['White', 'Black'];
+  const who = hotseat() ? game.turn : playerColor;
+  const left = game.stopsLeft[who];
+  const yourTurn = humanPlays(game.turn) && game.turn === who;
+  if (!game.canStop()) stopArmed = false;
+
+  ui.stop.disabled = gameFinished || thinking || !!pendingPromo || !yourTurn || !game.canStop();
+  ui.stop.classList.toggle('armed', stopArmed && !ui.stop.disabled);
+  ui.stop.classList.toggle('running', game.stopPlies > 0);
+
+  const owner = hotseat() ? `${names[who]}: ` : '';
+  if (game.stopPlies > 0) {
+    // Only ever seen on the reply: the stopped move itself has already gone.
+    ui.stopTitle.textContent = 'Board stopped';
+    ui.stopSub.textContent = 'no turn after this move either';
+  } else if (stopArmed) {
+    ui.stopTitle.textContent = 'Stop is on';
+    ui.stopSub.textContent = 'make your move - the board will not turn';
+  } else {
+    ui.stopTitle.textContent = 'Stop turning';
+    ui.stopSub.textContent = `${owner}${left} of ${STOPS_PER_GAME} left`;
+  }
+}
+
 function refreshStatus() {
+  refreshStopButton();
   if (gameFinished) return;
   const over = game.gameOver();
   if (over) return finish(over);
   const side = game.turn === WHITE ? 'White' : 'Black';
-  const yours = game.turn === playerColor;
   view.checkSquare = game.inCheck() ? game.kingSq[game.turn] : -1;
+  const headline = thinking ? 'Thinking...'
+    : hotseat() ? `${side} to move`
+    : (game.turn === playerColor ? 'Your move' : `${side} to move`);
   setStatus(
-    thinking ? 'Thinking...' : (yours ? 'Your move' : `${side} to move`),
+    headline,
     game.inCheck() ? `${side} is in check` : `${side} - move ${game.fullmove}`
   );
 }
@@ -116,26 +160,28 @@ function finish(over) {
   const msg = over.type === 'checkmate'
     ? `${names[over.winner]} wins`
     : over.type === 'stalemate' ? 'Stalemate' : 'Draw';
-  const why = over.type === 'checkmate'
-    ? (over.winner === playerColor ? 'Checkmate - you won' : 'Checkmate')
-    : `Draw by ${over.type}`;
+  const why = over.type !== 'checkmate' ? `Draw by ${over.type}`
+    : hotseat() ? `Checkmate by ${names[over.winner]}`
+    : (over.winner === playerColor ? 'Checkmate - you won' : 'Checkmate');
   setStatus(msg, why);
+  refreshStopButton();
   sound('end');
-  // The board blooms back open when the game ends -- but only if this is still
-  // that game, so a new one started in the meantime is not pulled apart.
+  // After a short beat -- long enough for a mating move's twist to land -- a
+  // checkmate is announced over the board, which stays shut so the final
+  // position can be seen. A draw blooms the board back open instead. Either
+  // way only if this is still that game, so a new one is not disturbed.
   const mine = epoch;
   setTimeout(() => {
     if (mine !== epoch) return;
-    sound('fold');
-    // sync the slider when the bloom finishes, not when it starts
-    view.animateTo(THETA_OPEN, 1800).then(syncFoldSlider);
+    if (over.type === 'checkmate') {
+      ui.mateKing.className = `mate-king ${over.winner === WHITE ? 'w' : 'b'}`;
+      ui.mateWinner.textContent = `${names[over.winner]} wins`;
+      ui.mate.hidden = false;
+    } else {
+      sound('fold');
+      view.animateTo(THETA_OPEN, 1800);
+    }
   }, 700);
-}
-
-function syncFoldSlider() {
-  const v = Math.round(Math.abs(view.theta / THETA_OPEN) * 100);
-  ui.fold.value = v;
-  ui.foldVal.textContent = `${(Math.abs(view.theta) / DEG).toFixed(0)}°`;
 }
 
 /* ---- playing a move ---- */
@@ -153,10 +199,16 @@ function applyMove(m) {
   view.animateMove(parts);
   sound(m.flags & F_CAPTURE ? 'capture' : 'move');
 
+  stopArmed = false;
+  const names = ['White', 'Black'];
+  const mover = names[game.turn];
+
   game.make(m);
-  const twisted = !!game.history[game.history.length - 1].twisted;
+  const h = game.history[game.history.length - 1];
+  const twisted = !!h.twisted;
+  const stopUsed = !!(m.flags & F_STOP);
   game.pushRepetition();
-  game.moveLog.push({ san, move: m, twisted });
+  game.moveLog.push({ san, move: m, twisted, stopUsed });
 
   view.lastMove = { from: m.from, to: m.to };
   view.selected = -1;
@@ -165,7 +217,11 @@ function applyMove(m) {
   refreshMoveList();
   refreshCaptured();
   refreshStatus();
-  if (!twisted) {
+  if (stopUsed) {
+    ui.detail.textContent = `${mover} stopped the board - no turn now or after the reply`;
+  } else if (h.stopped) {
+    ui.detail.textContent = 'the board is still stopped - it turns again next move';
+  } else if (!twisted) {
     ui.detail.textContent = 'the blocks held - turning would have exposed the king';
   }
 
@@ -190,12 +246,12 @@ async function advanceTurn(mine, twisted) {
     await sleep(260);
     if (mine !== epoch) return;
   }
-  if (!gameFinished && game.turn !== playerColor) aiTurn();
+  if (!gameFinished && !humanPlays(game.turn)) aiTurn();
 }
 
 function aiTurn() {
   if (gameFinished || thinking) return;
-  if (game.turn === playerColor) return;        // never move on the player's behalf
+  if (humanPlays(game.turn)) return;           // never move on a human's behalf
   const mine = epoch;
   thinking = true;
   refreshStatus();
@@ -204,7 +260,7 @@ function aiTurn() {
     if (mine !== epoch) { thinking = false; return; }
     const r = ai.think(+ui.level.value);
     thinking = false;
-    if (mine !== epoch || !r || gameFinished || game.turn === playerColor) { refreshStatus(); return; }
+    if (mine !== epoch || !r || gameFinished || humanPlays(game.turn)) { refreshStatus(); return; }
     applyMove(r.move);
     if (r.depth) ui.detail.textContent += `  -  depth ${r.depth}, ${(r.nodes / 1000 | 0)}k nodes`;
   }, 10));
@@ -212,13 +268,15 @@ function aiTurn() {
 
 view.onSquareClick = (sqIdx) => {
   if (gameFinished || thinking || pendingPromo) return;
-  if (game.turn !== playerColor) return;
+  if (!humanPlays(game.turn)) return;
   if (sqIdx < 0) { view.selected = -1; view.legalTargets = []; return; }
 
   const legal = game.legalMoves();
 
   if (view.selected >= 0) {
-    const candidates = legal.filter((m) => m.from === view.selected && m.to === sqIdx);
+    // Every move exists with and without a stop; the button decides which.
+    const candidates = legal.filter((m) => m.from === view.selected && m.to === sqIdx &&
+      !!(m.flags & F_STOP) === stopArmed);
     if (candidates.length > 1) return askPromotion(candidates);   // promotion
     if (candidates.length === 1) return applyMove(candidates[0]);
   }
@@ -241,12 +299,17 @@ function askPromotion(candidates) {
     if (!m) continue;
     const b = document.createElement('button');
     b.className = 'promo-btn';
-    b.innerHTML = `<span class="glyph ${playerColor === WHITE ? 'w' : 'b'}">${GLYPH[t]}</span>`;
+    b.innerHTML = `<span class="glyph ${game.turn === WHITE ? 'w' : 'b'}">${GLYPH[t]}</span>`;
     b.title = { [QUEEN]: 'Queen', [ROOK]: 'Rook', [BISHOP]: 'Bishop', [KNIGHT]: 'Knight' }[t];
-    b.onclick = () => { ui.promo.hidden = true; pendingPromo = null; applyMove(m); };
+    b.onclick = () => {
+      // Only if this box is still the open question -- see undo.
+      if (pendingPromo !== candidates) return;
+      ui.promo.hidden = true; pendingPromo = null; applyMove(m);
+    };
     ui.promoBtns.appendChild(b);
   }
   ui.promo.hidden = false;
+  refreshStopButton();
 }
 
 /* ---- controls ---- */
@@ -259,6 +322,8 @@ async function newGame() {
   thinking = false;
   pendingPromo = null;
   ui.promo.hidden = true;
+  ui.mate.hidden = true;
+  stopArmed = false;
   view.lastMove = null;
   view.selected = -1;
   view.legalTargets = [];
@@ -266,7 +331,10 @@ async function newGame() {
   view.pieceAnim = null;
 
   playerColor = ui.side.value === 'black' ? BLACK : WHITE;
-  view.flipped = playerColor === BLACK;
+  // In hotseat the board just starts with White at the bottom; use Flip to turn
+  // it round for the other player.
+  view.flipped = !hotseat() && playerColor === BLACK;
+  ui.sideRow.hidden = hotseat();
 
   refreshMoveList();
   refreshCaptured();
@@ -275,23 +343,47 @@ async function newGame() {
   game.twist = true;              // this is the game, not an option
   view.setTwistAngle(0);
   view.setThetaManual(THETA_OPEN);
-  syncFoldSlider();
   sound('fold');
   await view.animateTo(THETA_SOLID, 1700);
-  syncFoldSlider();
 
   refreshStatus();
-  if (game.turn !== playerColor) setTimeout(aiTurn, 300);
+  if (!humanPlays(game.turn)) setTimeout(aiTurn, 300);
 }
 
 el('new-game').onclick = newGame;
 
 el('flip').onclick = () => { view.flipped = !view.flipped; };
 
+// Arms the stop for the move you are about to play; press again to take it back.
+ui.stop.onclick = () => {
+  if (ui.stop.disabled) return;
+  stopArmed = !stopArmed;
+  refreshStopButton();
+};
+
 el('undo').onclick = () => {
   if (thinking || !game.moveLog.length) return;
+  // Not while the blocks are turning. The paint angle is only a whole number of
+  // quarters once the turn lands; winding it back mid-turn left the tiles
+  // crooked for the rest of the game. Board clicks wait for the same thing.
+  if (view.twistAnim) return;
+
+  // A promotion box belongs to the position it was opened in. Close it, or a
+  // choice made after the undo plays that move into a different position.
+  pendingPromo = null;
+  ui.promo.hidden = true;
+
+  // Drops anything queued for the position being taken back -- above all what
+  // follows a finished game, the checkmate text or the bloom, which would
+  // otherwise land on top of a live one.
+  epoch++;
+  ui.mate.hidden = true;
+  stopArmed = false;
+
   // Take back a full move so it is the player's turn again.
-  const plies = (game.turn === playerColor) ? 2 : 1;
+  // Against the computer, take back its reply too so it is your turn again.
+  // In hotseat one ply is one turn, so take back exactly one.
+  const plies = hotseat() ? 1 : (game.turn === playerColor ? 2 : 1);
   let unwind = 0;
   for (let i = 0; i < plies && game.moveLog.length; i++) {
     const h = game.history[game.history.length - 1];
@@ -308,17 +400,18 @@ el('undo').onclick = () => {
     ? { from: game.history[game.history.length - 1].move.from,
         to: game.history[game.history.length - 1].move.to }
     : null;
-  view.selected = -1; view.legalTargets = [];
+  view.selected = -1; view.legalTargets = []; view.pieceAnim = null;
   refreshMoveList(); refreshCaptured(); refreshStatus();
+
+  // The game is live again, so close the board back up if a draw had bloomed
+  // it open (or started to). Clicks are ignored until it is flat.
+  if (view.tween || Math.abs(view.theta - THETA_SOLID) > 0.004) {
+    sound('fold');
+    view.animateTo(THETA_SOLID, 900);
+  }
 };
 
-ui.fold.oninput = () => {
-  if (thinking) return;
-  view.setThetaManual(THETA_OPEN * (+ui.fold.value / 100));
-  ui.foldVal.textContent = `${(Math.abs(view.theta) / DEG).toFixed(0)}°`;
-  view.selected = -1; view.legalTargets = [];
-};
-
+ui.level.onchange = () => { if (hotseat() || ui.sideRow.hidden) newGame(); };
 ui.side.onchange = newGame;
 
 document.addEventListener('keydown', (e) => {
