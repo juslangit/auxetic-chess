@@ -217,12 +217,16 @@ function applyMove(m) {
   refreshMoveList();
   refreshCaptured();
   refreshStatus();
-  if (stopUsed) {
-    ui.detail.textContent = `${mover} stopped the board - no turn now or after the reply`;
-  } else if (h.stopped) {
-    ui.detail.textContent = 'the board is still stopped - it turns again next move';
-  } else if (!twisted) {
-    ui.detail.textContent = 'the blocks held - turning would have exposed the king';
+  // A note on what the board did. It adds to the status line, never replaces
+  // it: a finished game keeps its result ("Checkmate - you won"), and a check
+  // is still reported in front of the note.
+  const note = stopUsed ? `${mover} stopped the board - no turn now or after the reply`
+    : h.stopped ? 'the board is still stopped - it turns again next move'
+    : !twisted ? 'the blocks held - turning would have exposed the king'
+    : '';
+  if (note && !gameFinished) {
+    const side = names[game.turn];
+    ui.detail.textContent = game.inCheck() ? `${side} is in check - ${note}` : note;
   }
 
   advanceTurn(mine, twisted);
@@ -262,7 +266,8 @@ function aiTurn() {
     thinking = false;
     if (mine !== epoch || !r || gameFinished || humanPlays(game.turn)) { refreshStatus(); return; }
     applyMove(r.move);
-    if (r.depth) ui.detail.textContent += `  -  depth ${r.depth}, ${(r.nodes / 1000 | 0)}k nodes`;
+    // Search stats are a footnote; never tack them onto a result.
+    if (r.depth && !gameFinished) ui.detail.textContent += `  -  depth ${r.depth}, ${(r.nodes / 1000 | 0)}k nodes`;
   }, 10));
 }
 
@@ -421,6 +426,9 @@ ui.side.onchange = newGame;
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'n' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); newGame(); }
+  // Plain f and u only. With a modifier held they belong to the browser --
+  // Cmd+F is find, and it used to flip the board as well.
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'f') el('flip').click();
   if (e.key === 'u') el('undo').click();
 });

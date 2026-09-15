@@ -300,6 +300,40 @@ const QUARTER = Math.PI / 2;
   await waitSolid();
   await s.shot(__dirname + '/shots/twist-done.png');
 
+  // ---- 9. the move dots know which squares are painted light ----
+  /* Each quarter turn swaps the painted light and dark squares. The dots pick
+     a dark dot for a light square and a light dot for a dark one; judged from
+     the unturned pattern, every other turn put dark dots on dark squares.
+     So: read the actual pixels under empty squares and compare with what the
+     renderer believes, after zero, one, two and three quarters. */
+  await setup();
+  const colourRuns = [];
+  for (const q of [0, 1, 2, 3]) {
+    const r = JSON.parse(await s.eval(`(async () => {
+      view.setTwistAngle(${q} * Math.PI / 2);
+      await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const cv = document.getElementById('board'), cx = cv.getContext('2d');
+      let checked = 0, wrong = 0;
+      for (let r = 2; r <= 5; r++) for (let f = 0; f < 8; f++) {
+        const sq = r * 16 + f;
+        if (game.board[sq] !== EMPTY) continue;
+        const L = view.squareLayout(sq);
+        // halfway between the centre and an edge: clear of dots, pins and seams
+        const px = cx.getImageData(Math.round((L.x + L.size * 0.3) * view.dpr),
+                                   Math.round(L.y * view.dpr), 1, 1).data;
+        const paintedLight = (px[0] + px[1] + px[2]) / 3 > 128;
+        checked++;
+        if (paintedLight !== view.slotIsLight(L.u, L.v)) wrong++;
+      }
+      return JSON.stringify({ checked, wrong });
+    })()`));
+    colourRuns.push({ q, ...r });
+  }
+  await s.eval(`view.setTwistAngle(0)`);
+  ok(colourRuns.every(r => r.checked >= 16 && r.wrong === 0),
+     'dots judge light/dark right after any turn count',
+     colourRuns.map(r => `${r.q}q ${r.wrong} wrong of ${r.checked}`).join(', '));
+
   console.log('\nconsole errors:', errs().length ? errs() : 'none');
   console.log(`${pass} passed, ${fail} failed`);
   await s.close();
