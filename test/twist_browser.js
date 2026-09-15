@@ -11,7 +11,10 @@ const QUARTER = Math.PI / 2;
   await launch();
   const s = await Session.open('http://localhost:8765/index.html');
   await s.send('Page.enable'); await s.send('Runtime.enable'); await s.send('Log.enable');
-  await sleep(3400);
+  await sleep(1200);
+  // Past the start screen, the way a player gets there.
+  await s.eval(`startGame({ level: 2, side: 'white', name: 'Tester' })`);
+  await sleep(2400);
   fs.mkdirSync(__dirname + '/shots', { recursive: true });
   const errs = () => s.events.filter(e => e.method === 'Log.entryAdded' && e.params.entry.level === 'error')
                              .map(e => e.params.entry.text);
@@ -40,7 +43,7 @@ const QUARTER = Math.PI / 2;
   const setup = async (extra = '') => {
     await s.eval(`epoch++; game.reset(); game.moveLog = []; gameFinished = false; thinking = false;
       playerColor = WHITE; view.flipped = false; view.setThetaManual(0); view.setTwistAngle(0);
-      game.twist = true; ui.level.value = '0';
+      game.twist = true; settings.level = 0;
       view.lastMove = null; view.selected = -1; view.legalTargets = []; view.pieceAnim = null;
       ${extra} refreshMoveList(); refreshCaptured(); refreshStatus();`);
     await sleep(250);
@@ -243,7 +246,7 @@ const QUARTER = Math.PI / 2;
      'undo restores position and paint angle', `${pliesPlayed} plies undone, paint ${R.paint.toFixed(4)}`);
 
   // ---- 7. a full round with the AI, twist and all ----
-  await setup(`ui.level.value = '1';`);
+  await setup(`settings.level = 1;`);
   await s.click(...await at('e2')); await sleep(140);
   await s.click(...await at('e4'));
   const settled = await waitTurn();
@@ -291,7 +294,7 @@ const QUARTER = Math.PI / 2;
   // ---- shots: mid-twist and settled ----
   /* `s.eval` awaits promises, and twistOnce resolves only when the animation
      ends -- so `void` it, or every capture lands after the twist has finished. */
-  await setup(`ui.level.value = '0';`);
+  await setup(`settings.level = 0;`);
   await s.eval(`void view.twistOnce(3000, 0)`);
   await sleep(1100);
   const midAlpha = await s.eval(`+(view.twistAlpha(performance.now()) * 180 / Math.PI).toFixed(1)`);

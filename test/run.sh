@@ -31,6 +31,9 @@ node twist_test.js
 echo "\n=== stop turning, in the engine ==="
 node stop_test.js
 
+echo "\n=== the leaderboard, on its own ==="
+node leaderboard_test.js
+
 echo "\n=== browser: the game, played through the real UI ==="
 (cd .. && python3 -m http.server 8765 >/dev/null 2>&1 &)
 sleep 1
@@ -50,5 +53,9 @@ fi
 if [ "$status" -eq 0 ]; then
   echo "\n=== browser: stop turning ==="
   node stop_browser.js; status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  echo "\n=== browser: start screen and leaderboard ==="
+  node leaderboard_browser.js; status=$?
 fi
 exit $status

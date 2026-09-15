@@ -13,25 +13,35 @@ const el = (id) => document.getElementById(id);
 const ui = {
   status: el('status'), detail: el('detail'), moves: el('moves'),
   capW: el('cap-white'), capB: el('cap-black'),
-  level: el('level'), side: el('side'), sideRow: el('side-row'),
+  pcName: el('pc-name'), pcMeta: el('pc-meta'), pcRank: el('pc-rank'),
   promo: el('promo'), promoBtns: el('promo-choices'),
-  mate: el('mate'), mateKing: el('mate-king'), mateWinner: el('mate-winner'),
+  mate: el('mate'), mateKing: el('mate-king'), mateWinner: el('mate-winner'), mateRank: el('mate-rank'),
   stop: el('stop'), stopTitle: el('stop-title'), stopSub: el('stop-sub'),
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* What the start screen chose. `level` is 0-3 for the computer, or 'hotseat'
+   for two players. `name` is only set against the computer. */
+const settings = { level: 2, side: WHITE, name: '' };
+const leaderboard = new Leaderboard((() => { try { return window.localStorage; } catch (_) { return null; } })());
+
 /* Who is at the keyboard. In hotseat both sides are, and `playerColor` only
    says which way up the board starts. Everything that used to compare against
    `playerColor` asks `humanPlays` instead. */
 let playerColor = WHITE;
-const hotseat = () => ui.level.value === 'hotseat';
+const hotseat = () => settings.level === 'hotseat';
 const humanPlays = (color) => hotseat() || color === playerColor;
 let thinking = false;
 let pendingPromo = null;
 let gameFinished = false;
 // "Stop turning" pressed, waiting for the move it goes with.
 let stopArmed = false;
+// Set by the first undo against the computer. The game plays on, but a win no
+// longer goes on the leaderboard -- otherwise any win is one takeback away.
+let undoUsed = false;
+// This game's win has been written to the leaderboard.
+let winSaved = false;
 // Bumped on every new game or position setup. A queued AI turn from an earlier
 // game carries the old epoch and is dropped, so it can never move for the player.
 let epoch = 0;
@@ -166,6 +176,9 @@ function finish(over) {
   setStatus(msg, why);
   refreshStopButton();
   sound('end');
+  // Recorded now, not when the card appears, so a quick New game cannot lose it.
+  const rankLine = rankResult(over);
+  refreshPlayerCard();
   // After a short beat -- long enough for a mating move's twist to land -- a
   // checkmate is announced over the board, which stays shut so the final
   // position can be seen. A draw blooms the board back open instead. Either
@@ -176,12 +189,61 @@ function finish(over) {
     if (over.type === 'checkmate') {
       ui.mateKing.className = `mate-king ${over.winner === WHITE ? 'w' : 'b'}`;
       ui.mateWinner.textContent = `${names[over.winner]} wins`;
+      ui.mateRank.textContent = rankLine;
+      ui.mateRank.hidden = !rankLine;
       ui.mate.hidden = false;
     } else {
       sound('fold');
       view.animateTo(THETA_OPEN, 1800);
     }
   }, 700);
+}
+
+/* ---- the leaderboard ---- */
+
+const levelName = (level) => LEVEL_NAMES[level];
+
+/* A finished game against the computer. Only a checkmate you delivered, in a
+   game with no undo, counts. Returns the line for the checkmate card. */
+function rankResult(over) {
+  if (hotseat() || over.type !== 'checkmate' || over.winner !== playerColor) return '';
+  if (undoUsed) return 'Not ranked - Undo was used';
+  const r = leaderboard.addWin(settings.level, settings.name);
+  if (!r) return '';
+  winSaved = true;
+  return `${r.name}: ${r.wins} ${r.wins === 1 ? 'win' : 'wins'} at ${levelName(settings.level)} - #${r.rank}`;
+}
+
+// The table itself, shared by the start screen and the leaderboard window.
+function renderLeaderboard(box, level, highlight = '') {
+  const rows = leaderboard.top(level, 10);
+  const me = highlight.toLowerCase();
+  if (!rows.length) {
+    box.innerHTML = `<p class="lb-empty">No wins at ${levelName(level)} yet.<br>Be the first.</p>`;
+    return;
+  }
+  const esc = (t) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  box.innerHTML = '<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>Wins</th></tr></thead><tbody>' +
+    rows.map((r, i) => `<tr class="${r.name.toLowerCase() === me ? 'me' : ''}"><td>${i + 1}</td>` +
+      `<td>${esc(r.name)}</td><td>${r.wins}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+// Who is playing, at what, and whether this game still counts.
+function refreshPlayerCard() {
+  if (hotseat()) {
+    ui.pcName.textContent = 'Two players';
+    ui.pcMeta.textContent = 'Same device';
+    ui.pcRank.textContent = 'Not ranked';
+    ui.pcRank.className = 'pc-rank off';
+    return;
+  }
+  ui.pcName.textContent = settings.name;
+  ui.pcMeta.textContent = `vs Computer - ${levelName(settings.level)} - ${playerColor === WHITE ? 'White' : 'Black'}`;
+  ui.pcRank.textContent = undoUsed ? 'Practice - Undo used, a win won\'t count'
+    : winSaved ? `Win saved to the ${levelName(settings.level)} leaderboard`
+    : `Ranked - a win goes on the ${levelName(settings.level)} leaderboard`;
+  ui.pcRank.className = `pc-rank ${undoUsed ? 'off' : 'on'}`;
 }
 
 /* ---- playing a move ---- */
@@ -262,7 +324,7 @@ function aiTurn() {
   // Let the browser paint "Thinking..." before the search blocks the thread.
   requestAnimationFrame(() => setTimeout(() => {
     if (mine !== epoch) { thinking = false; return; }
-    const r = ai.think(+ui.level.value);
+    const r = ai.think(settings.level);
     thinking = false;
     if (mine !== epoch || !r || gameFinished || humanPlays(game.turn)) { refreshStatus(); return; }
     applyMove(r.move);
@@ -329,17 +391,19 @@ async function newGame() {
   ui.promo.hidden = true;
   ui.mate.hidden = true;
   stopArmed = false;
+  undoUsed = false;
+  winSaved = false;
   view.lastMove = null;
   view.selected = -1;
   view.legalTargets = [];
   view.checkSquare = -1;
   view.pieceAnim = null;
 
-  playerColor = ui.side.value === 'black' ? BLACK : WHITE;
+  playerColor = settings.side;
   // In hotseat the board just starts with White at the bottom; use Flip to turn
   // it round for the other player.
   view.flipped = !hotseat() && playerColor === BLACK;
-  ui.sideRow.hidden = hotseat();
+  refreshPlayerCard();
 
   refreshMoveList();
   refreshCaptured();
@@ -393,6 +457,7 @@ el('undo').onclick = () => {
   epoch++;
   ui.mate.hidden = true;
   stopArmed = false;
+  if (!hotseat()) undoUsed = true;
 
   let unwind = 0;
   for (let i = 0; i < plies && game.moveLog.length; i++) {
@@ -411,7 +476,7 @@ el('undo').onclick = () => {
         to: game.history[game.history.length - 1].move.to }
     : null;
   view.selected = -1; view.legalTargets = []; view.pieceAnim = null;
-  refreshMoveList(); refreshCaptured(); refreshStatus();
+  refreshMoveList(); refreshCaptured(); refreshStatus(); refreshPlayerCard();
 
   // The game is live again, so close the board back up if a draw had bloomed
   // it open (or started to). Clicks are ignored until it is flat.
@@ -421,10 +486,121 @@ el('undo').onclick = () => {
   }
 };
 
-ui.level.onchange = () => { if (hotseat() || ui.sideRow.hidden) newGame(); };
-ui.side.onchange = newGame;
+/* ---- start screen ---- */
+
+const menu = {
+  box: el('menu'), form: el('start-form'), name: el('name'), hint: el('name-hint'),
+  levels: el('level-pick'), sides: el('side-pick'), resume: el('resume'),
+  lbLevel: el('menu-lb-level'), lbTable: el('menu-lb-table'),
+};
+const lbWin = { box: el('lb'), tabs: el('lb-tabs'), table: el('lb-table') };
+const NAME_KEY = 'auxetic-chess.name';
+
+// What is picked on the start screen, before Start is pressed.
+const pick = { level: 2, side: WHITE };
+
+const store = {
+  get(k) { try { return window.localStorage.getItem(k) || ''; } catch (_) { return ''; } },
+  set(k, v) { try { window.localStorage.setItem(k, v); } catch (_) { /* remembering is a nicety */ } },
+};
+
+const markSelected = (group, attr, value) => {
+  for (const b of group.querySelectorAll('button')) {
+    const on = b.dataset[attr] === String(value);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on);
+  }
+};
+
+function refreshMenu() {
+  markSelected(menu.levels, 'level', pick.level);
+  markSelected(menu.sides, 'side', pick.side === WHITE ? 'white' : 'black');
+  menu.lbLevel.textContent = levelName(pick.level);
+  renderLeaderboard(menu.lbTable, pick.level, cleanName(menu.name.value));
+}
+
+const menuOpen = () => !menu.box.hidden;
+
+// `canResume` when opened from a game that is still there to go back to.
+function openMenu(canResume) {
+  if (!hotseat()) pick.level = settings.level;
+  pick.side = settings.side;
+  menu.name.value = settings.name || store.get(NAME_KEY);
+  menu.hint.textContent = 'Needed for the leaderboard.';
+  menu.hint.classList.remove('bad');
+  menu.resume.hidden = !canResume;
+  menu.box.hidden = false;
+  refreshMenu();
+  // No keyboard popping up over the board on a phone just from opening the menu.
+  if (!('ontouchstart' in window)) menu.name.focus();
+}
+
+function closeMenu() { menu.box.hidden = true; }
+
+/* Start a game. The start screen calls this, and so do the browser tests, so
+   they go through exactly the same setup a player does. */
+function startGame({ level, side, name = '' }) {
+  settings.level = level === 'hotseat' ? 'hotseat' : +level;
+  settings.side = side === 'black' || side === BLACK ? BLACK : WHITE;
+  settings.name = settings.level === 'hotseat' ? '' : cleanName(name);
+  closeMenu();
+  return newGame();
+}
+
+menu.levels.onclick = (e) => {
+  const b = e.target.closest('button[data-level]');
+  if (b) { pick.level = +b.dataset.level; refreshMenu(); }
+};
+menu.sides.onclick = (e) => {
+  const b = e.target.closest('button[data-side]');
+  if (b) { pick.side = b.dataset.side === 'black' ? BLACK : WHITE; refreshMenu(); }
+};
+menu.name.oninput = () => {
+  menu.hint.classList.remove('bad');
+  menu.hint.textContent = 'Needed for the leaderboard.';
+  renderLeaderboard(menu.lbTable, pick.level, cleanName(menu.name.value));
+};
+
+// Start (or Enter in the name box): against the computer, a name is required.
+menu.form.onsubmit = (e) => {
+  e.preventDefault();
+  const name = cleanName(menu.name.value);
+  if (!name) {
+    menu.hint.textContent = 'Enter a username to play the computer.';
+    menu.hint.classList.add('bad');
+    menu.name.focus();
+    return;
+  }
+  store.set(NAME_KEY, name);
+  startGame({ level: pick.level, side: pick.side, name });
+};
+
+el('two-players').onclick = () => startGame({ level: 'hotseat', side: WHITE });
+menu.resume.onclick = closeMenu;
+el('menu-btn').onclick = () => openMenu(true);
+
+/* ---- the leaderboard window ---- */
+
+const lbOpen = () => !lbWin.box.hidden;
+function showLeaderboard(level) {
+  markSelected(lbWin.tabs, 'level', level);
+  renderLeaderboard(lbWin.table, level, settings.name);
+  lbWin.box.hidden = false;
+}
+el('lb-btn').onclick = () => showLeaderboard(hotseat() ? 2 : settings.level);
+lbWin.tabs.onclick = (e) => {
+  const b = e.target.closest('button[data-level]');
+  if (b) showLeaderboard(+b.dataset.level);
+};
+el('lb-close').onclick = () => { lbWin.box.hidden = true; };
+// A click on the dimmed backdrop, outside the card, closes it too.
+lbWin.box.onclick = (e) => { if (e.target === lbWin.box) lbWin.box.hidden = true; };
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && lbOpen()) { lbWin.box.hidden = true; return; }
+  // Shortcuts belong to the board. On the start screen, or while typing a name,
+  // "f" and "u" are letters -- and Cmd+N must not start a game with no name.
+  if (menuOpen() || lbOpen() || e.target.closest('input, textarea, select')) return;
   if (e.key === 'n' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); newGame(); }
   // Plain f and u only. With a modifier held they belong to the browser --
   // Cmd+F is find, and it used to flip the board as well.
@@ -433,4 +609,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'u') el('undo').click();
 });
 
-newGame();
+// On load: the board waits bloomed open behind the start screen.
+game.reset();
+game.moveLog = [];
+view.setThetaManual(THETA_OPEN);
+refreshCaptured();
+setStatus('Choose a game', 'enter a username and pick a level');
+openMenu(false);
