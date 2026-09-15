@@ -291,6 +291,23 @@ html, body {
 .name-input:focus { border-color: var(--accent); }
 .name-input::placeholder { color: #5c636f; font-weight: 500; }
 .hint { margin: 7px 0 0; font-size: 13px; color: #6d747f; }
+.pin-input { letter-spacing: 0.4em; font-variant-numeric: tabular-nums; }
+.pin-input::placeholder { letter-spacing: normal; }
+.start-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* Whether wins will be saved: green dot online, grey offline. */
+.lb-status { margin: -4px 0 12px; font-size: 13px; color: #7d848f; }
+.lb-status::before {
+  content: '';
+  display: inline-block;
+  width: 8px; height: 8px;
+  margin-right: 7px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: #5c636f;
+}
+.lb-status.up { color: #9fd8b4; }
+.lb-status.up::before { background: #4cc27a; }
 .hint.bad { color: #ff7a6b; font-weight: 600; }
 
 /* Segmented pickers: level, colour, and the leaderboard tabs. */
