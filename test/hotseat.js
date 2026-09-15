@@ -9,7 +9,10 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   await launch();
   const s = await Session.open('http://localhost:8765/index.html');
   await s.send('Page.enable'); await s.send('Runtime.enable'); await s.send('Log.enable');
-  await sleep(3400);
+  await sleep(1200);
+  // Past the start screen, the way a player gets there.
+  await s.eval(`startGame({ level: 2, side: 'white', name: 'Tester' })`);
+  await sleep(2400);
   const errs = () => s.events.filter(e => e.method === 'Log.entryAdded' && e.params.entry.level === 'error')
                              .map(e => e.params.entry.text);
 
@@ -33,17 +36,18 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   };
 
   // ---- pick two players and start ----
-  await s.eval(`ui.level.value = 'hotseat'; ui.level.onchange();`);
+  await s.eval(`document.getElementById('menu-btn').click()`);
+  await s.eval(`document.getElementById('two-players').click()`);
   await sleep(2600);
   const started = await s.eval(`JSON.stringify({
-    hotseat: ui.level.value === 'hotseat',
-    sideRowHidden: document.getElementById('side-row').hidden,
-    sideRowInvisible: getComputedStyle(document.getElementById('side-row')).display === 'none',
+    hotseat: hotseat(),
+    menuGone: getComputedStyle(document.getElementById('menu')).display === 'none',
+    card: document.getElementById('pc-name').textContent + ' | ' + document.getElementById('pc-rank').textContent,
     status: document.getElementById('status').textContent,
     turn: game.turn, twist: game.twist, flipped: view.flipped })`);
   const S = JSON.parse(started);
-  ok(S.hotseat && S.sideRowHidden && S.sideRowInvisible,
-     'choosing two players hides "You play"', `display none: ${S.sideRowInvisible}`);
+  ok(S.hotseat && S.menuGone && S.card === 'Two players | Not ranked',
+     'Two players starts from the menu, unranked', S.card);
   ok(S.status === 'White to move' && S.turn === 0 && S.twist === true && S.flipped === false,
      'starts with White to move, twist on', S.status);
 
@@ -87,15 +91,15 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   const twists = await s.eval(`game.moveLog.filter(x => x.twisted).length`);
   ok(twists >= 1, 'the twist runs on a hotseat turn', `${twists} of ${U.log.length} twisted`);
 
-  // ---- switching back to the computer restores the side picker and plays ----
-  await s.eval(`ui.level.value = '0'; ui.level.onchange();`);
+  // ---- back to the computer from the menu: a fresh game, and it plays ----
+  await s.eval(`startGame({ level: 0, side: 'white', name: 'Tester' })`);
   await sleep(2800);
   const back = await s.eval(`JSON.stringify({
-    sideRowHidden: document.getElementById('side-row').hidden,
+    hotseat: hotseat(), card: document.getElementById('pc-meta').textContent,
     log: game.moveLog.length, turn: game.turn })`);
   const K = JSON.parse(back);
-  ok(!K.sideRowHidden && K.log === 0, 'switching to the computer restores "You play"',
-     `side row shown: ${!K.sideRowHidden}, fresh game: ${K.log === 0}`);
+  ok(!K.hotseat && K.log === 0 && /Casual/.test(K.card), 'starting a computer game ends two players',
+     `${K.card}, fresh game: ${K.log === 0}`);
 
   await play('d2', 'd4');
   for (let i = 0; i < 60 && (await s.eval(`game.moveLog.length`)) < 2; i++) await sleep(200);

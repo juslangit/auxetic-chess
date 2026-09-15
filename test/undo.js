@@ -37,7 +37,7 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   };
   // Two players, twist on, from a given position.
   const setup = async (fen) => {
-    await s.eval(`ui.level.value = 'hotseat'; ui.level.onchange();`);
+    await s.eval(`startGame({ level: 'hotseat' })`);
     await waitSolid();
     await s.eval(`game.loadFEN('${fen}'); view.setTwistAngle(0); view.lastMove = null;
       refreshMoveList(); refreshCaptured(); refreshStatus();`);
@@ -149,7 +149,7 @@ const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PA
   // There is no move of yours to take back. Undo used to take back the
   // computer's move anyway, leaving it White to move with nothing asking the
   // computer to play -- the game sat there until New game.
-  await s.eval(`ui.level.value = '0'; ui.side.value = 'black'; ui.side.onchange();`);
+  await s.eval(`startGame({ level: 0, side: 'black', name: 'Tester' })`);
   await waitSolid();
   for (let i = 0; i < 60 && (await s.eval(`game.moveLog.length`)) < 1; i++) await sleep(150);
   await waitSolid();

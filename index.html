@@ -25,6 +25,7 @@
         <span id="mate-king" class="mate-king w">&#9818;</span>
         <h2>Checkmate</h2>
         <p id="mate-winner">White wins</p>
+        <p id="mate-rank" class="mate-rank" hidden></p>
       </div>
     </div>
   </section>
@@ -60,28 +61,21 @@
       </div>
     </div>
 
+    <div class="player-card" id="player-card">
+      <span id="pc-name" class="pc-name">Player</span>
+      <span id="pc-meta" class="pc-meta">vs Computer &mdash; Strong &middot; White</span>
+      <span id="pc-rank" class="pc-rank">Ranked</span>
+    </div>
+
     <div class="controls">
-      <div class="row">
-        <label for="level">Opponent</label>
-        <select id="level">
-          <option value="hotseat">Two players</option>
-          <option value="0">Computer &mdash; casual</option>
-          <option value="1">Computer &mdash; club</option>
-          <option value="2" selected>Computer &mdash; strong</option>
-          <option value="3">Computer &mdash; brutal</option>
-        </select>
-      </div>
-      <div class="row" id="side-row">
-        <label for="side">You play</label>
-        <select id="side">
-          <option value="white" selected>White</option>
-          <option value="black">Black</option>
-        </select>
-      </div>
       <div class="row buttons">
         <button id="new-game" class="primary">New game</button>
         <button id="undo">Undo</button>
         <button id="flip">Flip</button>
+      </div>
+      <div class="row buttons">
+        <button id="menu-btn">Menu</button>
+        <button id="lb-btn">Leaderboard</button>
       </div>
     </div>
 
@@ -100,9 +94,74 @@
 
 </main>
 
+<!-- Start screen. Shown on load, and again from Menu. -->
+<div id="menu" class="menu">
+  <div class="menu-card">
+    <header class="menu-head">
+      <h1>Auxetic Chess</h1>
+      <p>Every 2&times;2 block turns a quarter after each move.</p>
+    </header>
+
+    <div class="menu-body">
+      <form id="start-form" class="menu-form" novalidate>
+        <label class="field-label" for="name">Your name</label>
+        <input id="name" class="name-input" type="text" maxlength="16"
+               autocomplete="nickname" spellcheck="false" placeholder="Enter a username">
+        <p id="name-hint" class="hint">Needed for the leaderboard.</p>
+
+        <span class="field-label">Computer level</span>
+        <div id="level-pick" class="seg seg-4" role="radiogroup" aria-label="Computer level">
+          <button type="button" role="radio" data-level="0">Casual</button>
+          <button type="button" role="radio" data-level="1">Club</button>
+          <button type="button" role="radio" data-level="2">Strong</button>
+          <button type="button" role="radio" data-level="3">Brutal</button>
+        </div>
+
+        <span class="field-label">You play</span>
+        <div id="side-pick" class="seg seg-2" role="radiogroup" aria-label="You play">
+          <button type="button" role="radio" data-side="white"><span class="side-dot w"></span>White</button>
+          <button type="button" role="radio" data-side="black"><span class="side-dot b"></span>Black</button>
+        </div>
+
+        <button id="start" type="submit" class="start-btn">Start game</button>
+
+        <div class="or"><span>or</span></div>
+        <button id="two-players" type="button" class="two-btn">
+          Two players<small>same device &middot; no leaderboard</small>
+        </button>
+        <button id="resume" type="button" class="resume-btn" hidden>Back to the game</button>
+      </form>
+
+      <section class="menu-lb" aria-live="polite">
+        <h2><span id="menu-lb-level">Strong</span> leaderboard</h2>
+        <div id="menu-lb-table"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- The leaderboard, opened from the side panel during a game. -->
+<div id="lb" class="lb" hidden>
+  <div class="lb-card" role="dialog" aria-modal="true" aria-labelledby="lb-title">
+    <header class="lb-head">
+      <h2 id="lb-title">Leaderboard</h2>
+      <button id="lb-close" class="lb-close" aria-label="Close">&times;</button>
+    </header>
+    <div id="lb-tabs" class="seg seg-4" role="tablist">
+      <button type="button" role="tab" data-level="0">Casual</button>
+      <button type="button" role="tab" data-level="1">Club</button>
+      <button type="button" role="tab" data-level="2">Strong</button>
+      <button type="button" role="tab" data-level="3">Brutal</button>
+    </div>
+    <div id="lb-table"></div>
+    <p class="lb-note">Wins against the computer, saved on this device. Games where Undo was used don't count.</p>
+  </div>
+</div>
+
 <script src="js/chess.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/pieces.js"></script>
+<script src="js/leaderboard.js"></script>
 <script src="js/board.js"></script>
 <script src="js/main.js"></script>
 </body>

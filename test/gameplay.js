@@ -8,7 +8,10 @@ const ok = (c, msg, extra='') => { c?pass++:fail++; console.log(`${c?'PASS':'FAI
   await launch();
   const s = await Session.open('http://localhost:8765/index.html');
   await s.send('Page.enable'); await s.send('Runtime.enable'); await s.send('Log.enable');
-  await sleep(3200);
+  await sleep(1200);
+  // Past the start screen, the way a player gets there.
+  await s.eval(`startGame({ level: 2, side: 'white', name: 'Tester' })`);
+  await sleep(2400);
   fs.mkdirSync(__dirname + '/shots', { recursive: true });
   const errs = () => s.events.filter(e=>e.method==='Log.entryAdded'&&e.params.entry.level==='error').map(e=>e.params.entry.text);
 
@@ -57,7 +60,7 @@ const ok = (c, msg, extra='') => { c?pass++:fail++; console.log(`${c?'PASS':'FAI
     epoch++; game.reset(); game.moveLog = []; view.setTwistAngle(0); game.twist = false; gameFinished = false;
     game.loadFEN('r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1');
     playerColor = WHITE; view.flipped = false; view.lastMove = null;
-    refreshMoveList(); refreshCaptured(); refreshStatus(); ui.level.value = '0';
+    refreshMoveList(); refreshCaptured(); refreshStatus(); settings.level = 0;
   `);
   await sleep(150);
   await play('e1', 'g1');
@@ -143,7 +146,7 @@ const ok = (c, msg, extra='') => { c?pass++:fail++; console.log(`${c?'PASS':'FAI
   // ---- 6. undo restores the position exactly ----
   await s.eval(`
     epoch++; game.reset(); game.moveLog = []; view.setTwistAngle(0); game.twist = false; gameFinished = false; thinking = false;
-    playerColor = WHITE; view.setThetaManual(0); ui.level.value = '0'; refreshStatus();
+    playerColor = WHITE; view.setThetaManual(0); settings.level = 0; refreshStatus();
   `);
   await sleep(150);
   const before = await s.eval(`game.positionKey()`);
