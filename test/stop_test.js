@@ -141,7 +141,23 @@ console.log('\n--- the computer ---');
     firstStops.push(first === null ? 'none' : first);
   }
   ok(!illegal, 'the computer only plays legal moves, stops included', illegal || 'first stop at ' + firstStops.join(', '));
-  ok(!firstStops.includes(0), 'and does not stop on its very first move', firstStops.join(', '));
+  /* An earlier version of this suite asserted the computer never stops on its
+     first move, on the belief that such a stop was an evaluation illusion. It
+     is not: with material alone, a normal first move lets the turning board
+     hand Black an early check (1.Nf3, twist, ...Bc4+) and loses about 4 pawns
+     by depth 6, while a stop loses about 2. So early stops are allowed. What
+     a stop's price must guarantee is narrower: never spend one for nothing. */
+  {
+    const g = newGame();
+    g.loadFEN('k7/8/8/8/8/8/8/7K w - - 0 1');        // nothing on the board a stop could change
+    let spent = 0;
+    for (let p = 0; p < 6; p++) {
+      const r = new AI(g).think(1);
+      if (r.move.flags & F_STOP) spent++;
+      g.make(r.move);
+    }
+    ok(spent === 0, 'a stop is never spent when it gains nothing', `${spent} stops in 6 king moves`);
+  }
 
   // It sees a stop it can use. Rather than hand-craft one, find a position where
   // the best stopped move beats the best plain move by more than a minor piece,

@@ -87,6 +87,27 @@ console.log('\n--- strength: level 3 must beat level 0 across a full game ---');
      'strong side is winning', `${plies} plies, white eval ${whiteAdv}, ${over ? over.type : 'ongoing'}`);
 }
 
+console.log('\n--- evaluation under the twist ---');
+{
+  /* Under the twist a piece is scored by the average of its table over the four
+     squares its block carries it through, so turning the board must not change
+     the score. Pawnless, because the doubled/isolated pawn terms read files,
+     and a turn moves pawns between files. With plain tables it does change. */
+  const g = new Chess();
+  g.loadFEN('r2qk1n1/8/8/8/8/8/8/RN1QKB1R w - - 0 1');   // lopsided, so a real number
+  const ai = new AI(g);
+  g.twist = true;
+  const before = ai.evaluate();
+  g.rotateAllBlocks(1);
+  const after = ai.evaluate();
+  g.twist = false;
+  const plainTurned = ai.evaluate();
+  g.rotateAllBlocks(-1);
+  const plainBefore = ai.evaluate();
+  ok(Math.abs(before - after) < 1e-9, 'turning the board leaves the score alone', `${before} -> ${after}`);
+  ok(Math.abs(plainBefore - plainTurned) > 1, 'plain tables would have changed', `${plainBefore} -> ${plainTurned}`);
+}
+
 console.log('\n--- repetition: the search sees a draw coming ---');
 {
   /* White is a queen up. After Ng1-f3 Ka8-b8 Nf3-g1, Black to move can play
