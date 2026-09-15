@@ -4,6 +4,13 @@ const ctx = new Function(
   '\n; return {Chess, AI};')();
 const { Chess, AI } = ctx;
 
+// The casual level picks at random among near-best moves; seeded, the
+// strong-vs-casual game is the same game every run -- see repeatable.js.
+// (Strong still searches on the clock there: at full depth that game would
+// take minutes. Its margin is a whole game's worth of material.)
+const { seed } = require('./repeatable.js');
+seed(+process.env.TEST_SEED || 1);
+
 let pass = 0, fail = 0;
 const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${msg.padEnd(34)}${extra}`); };
 
