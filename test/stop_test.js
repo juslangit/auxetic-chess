@@ -6,6 +6,10 @@ const ctx = new Function(
   '\n; return {Chess, AI, squareName, F_STOP, WHITE, BLACK};')();
 const { Chess, AI, squareName, F_STOP, WHITE, BLACK } = ctx;
 
+// Same games, same engine picks, every run -- see repeatable.js. TEST_SEED tries another.
+const { seed, fullDepth } = require('./repeatable.js');
+seed(+process.env.TEST_SEED || 1);
+
 let pass = 0, fail = 0;
 const ok = (c, msg, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${msg.padEnd(52)}${extra}`); };
 const idx = (n) => 'abcdefgh'.indexOf(n[0]) + (+n[1] - 1) * 16;
@@ -130,7 +134,7 @@ console.log('\n--- the computer ---');
     const g = newGame(), ai = new AI(g);
     let plies = 0, first = null;
     while (plies < 40 && !g.gameOver()) {
-      const r = ai.think(1);
+      const r = fullDepth(() => ai.think(1));
       const legal = g.legalMoves().some((m) => m.from === r.move.from && m.to === r.move.to &&
         m.flags === r.move.flags && m.promo === r.move.promo);
       if (!legal) { illegal = `game ${game} ply ${plies}`; break; }
@@ -152,7 +156,7 @@ console.log('\n--- the computer ---');
     g.loadFEN('k7/8/8/8/8/8/8/7K w - - 0 1');        // nothing on the board a stop could change
     let spent = 0;
     for (let p = 0; p < 6; p++) {
-      const r = new AI(g).think(1);
+      const r = fullDepth(() => new AI(g).think(1));
       if (r.move.flags & F_STOP) spent++;
       g.make(r.move);
     }
@@ -188,18 +192,26 @@ console.log('\n--- the computer ---');
     if (stopped - plain > 300) found = { g, plain, stopped };
   }
   if (found) {
-    const r = new AI(found.g).think(1);
+    const r = fullDepth(() => new AI(found.g).think(1));
     ok(!!(r.move.flags & F_STOP), 'when stopping wins material, the computer stops',
        `stop worth ${found.stopped - found.plain} over the best plain move`);
   } else {
     ok(false, 'when stopping wins material, the computer stops', 'no test position found');
   }
 
-  // Search depth is not crippled by the doubled move list.
-  const plainG = new Chess(); plainG.twist = true;
-  const stopG = newGame();
-  const dPlain = new AI(plainG).think(2).depth, dStop = new AI(stopG).think(2).depth;
-  ok(dStop >= dPlain, 'strong level searches as deep with stops as without', `${dStop} vs ${dPlain}`);
+  /* Search depth is not crippled by the doubled move list. This used to race
+     two timed searches and compare the depth each reached, which a busy machine
+     could tip either way. Counted in nodes instead, which do not depend on the
+     machine: finishing the strong level's depth with stops must cost less extra
+     work than one more ply would. One ply's cost is measured from the plain
+     search itself, club depth 4 to strong depth 6. */
+  const plainAt = (level) => { const g = new Chess(); g.twist = true; return fullDepth(() => new AI(g).think(level)); };
+  const club = plainAt(1), strong = plainAt(2);
+  const withStops = fullDepth(() => new AI(newGame()).think(2));
+  const perPly = Math.sqrt(strong.nodes / club.nodes), overhead = withStops.nodes / strong.nodes;
+  ok(withStops.depth === strong.depth && overhead < perPly,
+     'strong level searches as deep with stops as without',
+     `stops cost x${overhead.toFixed(2)}, one more ply x${perPly.toFixed(1)}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
