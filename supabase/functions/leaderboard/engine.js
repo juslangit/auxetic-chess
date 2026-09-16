@@ -672,7 +672,7 @@ const TIMEOUT_MS = 8000;
 // Returns '' when nothing usable is left, which the start screen treats as "no name".
 function cleanName(raw) {
   return String(raw == null ? '' : raw)
-    .replace(/[ -]/g, '')
+    .replace(/[\x00-\x1f\x7f]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, NAME_MAX)
