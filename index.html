@@ -107,7 +107,11 @@
         <label class="field-label" for="name">Your name</label>
         <input id="name" class="name-input" type="text" maxlength="16"
                autocomplete="nickname" spellcheck="false" placeholder="Enter a username">
-        <p id="name-hint" class="hint">Needed for the leaderboard.</p>
+
+        <label class="field-label" for="pin">PIN</label>
+        <input id="pin" class="name-input pin-input" type="password" inputmode="numeric"
+               pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 digits">
+        <p id="name-hint" class="hint">First time? Your PIN claims the name. Don't reuse a PIN you use anywhere else.</p>
 
         <span class="field-label">Computer level</span>
         <div id="level-pick" class="seg seg-4" role="radiogroup" aria-label="Computer level">
@@ -134,6 +138,7 @@
 
       <section class="menu-lb" aria-live="polite">
         <h2><span id="menu-lb-level">Strong</span> leaderboard</h2>
+        <p id="lb-status" class="lb-status">Connecting...</p>
         <div id="menu-lb-table"></div>
       </section>
     </div>
@@ -154,14 +159,16 @@
       <button type="button" role="tab" data-level="3">Brutal</button>
     </div>
     <div id="lb-table"></div>
-    <p class="lb-note">Wins against the computer, saved on this device. Games where Undo was used don't count.</p>
+    <p class="lb-note">Wins against the computer, shared by everyone who plays. Each win is checked by replaying the game. Games where Undo was used don't count.</p>
   </div>
 </div>
 
 <script src="js/chess.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/pieces.js"></script>
+<script src="js/config.js"></script>
 <script src="js/leaderboard.js"></script>
+<script src="server/replay.js"></script>
 <script src="js/board.js"></script>
 <script src="js/main.js"></script>
 </body>

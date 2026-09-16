@@ -31,8 +31,12 @@ node twist_test.js
 echo "\n=== stop turning, in the engine ==="
 node stop_test.js
 
-echo "\n=== the leaderboard, on its own ==="
+echo "\n=== the leaderboard client, with a fake network ==="
 node leaderboard_test.js
+
+echo "\n=== the server's replay check on a claimed win ==="
+node replay_test.js
+node ../tools/build_function.js --check
 
 echo "\n=== browser: the game, played through the real UI ==="
 (cd .. && python3 -m http.server 8765 >/dev/null 2>&1 &)

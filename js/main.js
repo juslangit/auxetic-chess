@@ -22,9 +22,12 @@ const ui = {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* What the start screen chose. `level` is 0-3 for the computer, or 'hotseat'
-   for two players. `name` is only set against the computer. */
-const settings = { level: 2, side: WHITE, name: '' };
-const leaderboard = new Leaderboard((() => { try { return window.localStorage; } catch (_) { return null; } })());
+   for two players. `name` and `pin` are only set against the computer, and
+   `online` says the PIN was checked -- without that, a win cannot be saved.
+   The PIN is kept in memory for this visit only, never stored. */
+const settings = { level: 2, side: WHITE, name: '', pin: '', online: false, claimed: false };
+// `let`, so the browser tests can put a stand-in in its place.
+let leaderboard = new OnlineLeaderboard(typeof ONLINE !== 'undefined' ? ONLINE : {});
 
 /* Who is at the keyboard. In hotseat both sides are, and `playerColor` only
    says which way up the board starts. Everything that used to compare against
@@ -40,8 +43,8 @@ let stopArmed = false;
 // Set by the first undo against the computer. The game plays on, but a win no
 // longer goes on the leaderboard -- otherwise any win is one takeback away.
 let undoUsed = false;
-// This game's win has been written to the leaderboard.
-let winSaved = false;
+// What happened to this game's win: '', 'saving', 'saved', or a reason it was not.
+let winState = '';
 // Bumped on every new game or position setup. A queued AI turn from an earlier
 // game carries the old epoch and is dropped, so it can never move for the player.
 let epoch = 0;
@@ -176,8 +179,10 @@ function finish(over) {
   setStatus(msg, why);
   refreshStopButton();
   sound('end');
-  // Recorded now, not when the card appears, so a quick New game cannot lose it.
-  const rankLine = rankResult(over);
+  // Sent now, not when the card appears, so a quick New game cannot lose it.
+  // The line goes into the card straight away, hidden; the server's answer
+  // replaces it whenever it arrives, before or after the card is shown.
+  ui.mateRank.textContent = rankResult(over);
   refreshPlayerCard();
   // After a short beat -- long enough for a mating move's twist to land -- a
   // checkmate is announced over the board, which stays shut so the final
@@ -189,8 +194,7 @@ function finish(over) {
     if (over.type === 'checkmate') {
       ui.mateKing.className = `mate-king ${over.winner === WHITE ? 'w' : 'b'}`;
       ui.mateWinner.textContent = `${names[over.winner]} wins`;
-      ui.mateRank.textContent = rankLine;
-      ui.mateRank.hidden = !rankLine;
+      ui.mateRank.hidden = !ui.mateRank.textContent;
       ui.mate.hidden = false;
     } else {
       sound('fold');
@@ -204,29 +208,62 @@ function finish(over) {
 const levelName = (level) => LEVEL_NAMES[level];
 
 /* A finished game against the computer. Only a checkmate you delivered, in a
-   game with no undo, counts. Returns the line for the checkmate card. */
+   game with no undo and a checked PIN, is sent. Returns the first line for the
+   checkmate card; the answer from the server replaces it when it arrives. */
 function rankResult(over) {
   if (hotseat() || over.type !== 'checkmate' || over.winner !== playerColor) return '';
   if (undoUsed) return 'Not ranked - Undo was used';
-  const r = leaderboard.addWin(settings.level, settings.name);
-  if (!r) return '';
-  winSaved = true;
-  return `${r.name}: ${r.wins} ${r.wins === 1 ? 'win' : 'wins'} at ${levelName(settings.level)} - #${r.rank}`;
+  if (!settings.online) return 'Not ranked - the leaderboard was offline';
+
+  const mine = epoch;
+  const level = settings.level;
+  const moves = game.moveLog.map((e) => encodeMove(e.move));
+  winState = 'saving';
+  leaderboard.submitWin({ name: settings.name, pin: settings.pin, level, side: playerColor, moves })
+    .then((r) => {
+      if (r.status === 'saved') {
+        winState = 'saved';
+        return `${r.name}: ${r.wins} ${r.wins === 1 ? 'win' : 'wins'} at ${levelName(level)} - #${r.rank}`;
+      }
+      winState = 'not-saved';
+      if (r.status === 'duplicate') return 'Already counted - the same winning game only counts once';
+      if (r.status === 'rejected') return 'Not saved - the server could not confirm this win';
+      return 'Not saved - your PIN was not accepted';
+    }, () => { winState = 'not-saved'; return 'Not saved - the leaderboard is offline'; })
+    .then((line) => {
+      if (mine !== epoch) return;              // a new game has started since
+      ui.mateRank.textContent = line;
+      refreshPlayerCard();
+    });
+  return 'Saving your win...';
 }
 
 // The table itself, shared by the start screen and the leaderboard window.
-function renderLeaderboard(box, level, highlight = '') {
-  const rows = leaderboard.top(level, 10);
+// Loads in the background; a slower answer for a level no longer shown is dropped.
+async function renderLeaderboard(box, level, highlight = '') {
+  const ask = String(Math.random());
+  box.dataset.ask = ask;
+  if (!box.querySelector('table')) box.innerHTML = '<p class="lb-empty">Loading...</p>';
+  let rows;
+  try {
+    rows = await leaderboard.top(level, 10);
+  } catch (_) {
+    if (box.dataset.ask !== ask) return false;
+    box.innerHTML = `<p class="lb-empty">${leaderboard.configured ? 'The leaderboard is offline.' : 'The leaderboard is not connected.'}<br>You can still play.</p>`;
+    return false;
+  }
+  if (box.dataset.ask !== ask) return true;
   const me = highlight.toLowerCase();
   if (!rows.length) {
     box.innerHTML = `<p class="lb-empty">No wins at ${levelName(level)} yet.<br>Be the first.</p>`;
-    return;
+    return true;
   }
   const esc = (t) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   box.innerHTML = '<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>Wins</th></tr></thead><tbody>' +
     rows.map((r, i) => `<tr class="${r.name.toLowerCase() === me ? 'me' : ''}"><td>${i + 1}</td>` +
       `<td>${esc(r.name)}</td><td>${r.wins}</td></tr>`).join('') +
     '</tbody></table>';
+  return true;
 }
 
 // Who is playing, at what, and whether this game still counts.
@@ -240,10 +277,17 @@ function refreshPlayerCard() {
   }
   ui.pcName.textContent = settings.name;
   ui.pcMeta.textContent = `vs Computer - ${levelName(settings.level)} - ${playerColor === WHITE ? 'White' : 'Black'}`;
-  ui.pcRank.textContent = undoUsed ? 'Practice - Undo used, a win won\'t count'
-    : winSaved ? `Win saved to the ${levelName(settings.level)} leaderboard`
-    : `Ranked - a win goes on the ${levelName(settings.level)} leaderboard`;
-  ui.pcRank.className = `pc-rank ${undoUsed ? 'off' : 'on'}`;
+  const lb = `the ${levelName(settings.level)} leaderboard`;
+  const [text, on] =
+      !settings.online ? ['Not ranked - the leaderboard was offline when you started', false]
+    : undoUsed ? ['Practice - Undo used, a win won\'t count', false]
+    : winState === 'saving' ? ['Saving your win...', true]
+    : winState === 'saved' ? [`Win saved to ${lb}`, true]
+    : winState === 'not-saved' ? ['This win was not saved', false]
+    : settings.claimed ? [`Ranked - name claimed. Remember your PIN`, true]
+    : [`Ranked - a win goes on ${lb}`, true];
+  ui.pcRank.textContent = text;
+  ui.pcRank.className = `pc-rank ${on ? 'on' : 'off'}`;
 }
 
 /* ---- playing a move ---- */
@@ -392,7 +436,7 @@ async function newGame() {
   ui.mate.hidden = true;
   stopArmed = false;
   undoUsed = false;
-  winSaved = false;
+  winState = '';
   view.lastMove = null;
   view.selected = -1;
   view.legalTargets = [];
@@ -489,7 +533,8 @@ el('undo').onclick = () => {
 /* ---- start screen ---- */
 
 const menu = {
-  box: el('menu'), form: el('start-form'), name: el('name'), hint: el('name-hint'),
+  box: el('menu'), form: el('start-form'), name: el('name'), pin: el('pin'), hint: el('name-hint'),
+  start: el('start'), status: el('lb-status'),
   levels: el('level-pick'), sides: el('side-pick'), resume: el('resume'),
   lbLevel: el('menu-lb-level'), lbTable: el('menu-lb-table'),
 };
@@ -516,7 +561,22 @@ function refreshMenu() {
   markSelected(menu.levels, 'level', pick.level);
   markSelected(menu.sides, 'side', pick.side === WHITE ? 'white' : 'black');
   menu.lbLevel.textContent = levelName(pick.level);
-  renderLeaderboard(menu.lbTable, pick.level, cleanName(menu.name.value));
+  refreshMenuBoard();
+}
+
+// The start screen's table, and the line above it saying whether wins will be saved.
+async function refreshMenuBoard() {
+  const up = await renderLeaderboard(menu.lbTable, pick.level, cleanName(menu.name.value));
+  menu.status.textContent = up ? 'Online - shared by everyone who plays'
+    : leaderboard.configured ? 'Offline - you can still play, but wins won\'t be saved'
+    : 'Not connected - you can still play, but wins won\'t be saved';
+  menu.status.className = `lb-status ${up ? 'up' : 'down'}`;
+}
+
+const PIN_HINT = 'First time? Your PIN claims the name. Don\'t reuse a PIN you use anywhere else.';
+function hint(text, bad = false) {
+  menu.hint.textContent = text;
+  menu.hint.classList.toggle('bad', bad);
 }
 
 const menuOpen = () => !menu.box.hidden;
@@ -526,8 +586,8 @@ function openMenu(canResume) {
   if (!hotseat()) pick.level = settings.level;
   pick.side = settings.side;
   menu.name.value = settings.name || store.get(NAME_KEY);
-  menu.hint.textContent = 'Needed for the leaderboard.';
-  menu.hint.classList.remove('bad');
+  menu.pin.value = settings.pin;
+  hint(PIN_HINT);
   menu.resume.hidden = !canResume;
   menu.box.hidden = false;
   refreshMenu();
@@ -539,10 +599,14 @@ function closeMenu() { menu.box.hidden = true; }
 
 /* Start a game. The start screen calls this, and so do the browser tests, so
    they go through exactly the same setup a player does. */
-function startGame({ level, side, name = '' }) {
+function startGame({ level, side, name = '', pin = '', online = false, claimed = false }) {
   settings.level = level === 'hotseat' ? 'hotseat' : +level;
   settings.side = side === 'black' || side === BLACK ? BLACK : WHITE;
-  settings.name = settings.level === 'hotseat' ? '' : cleanName(name);
+  const vsComputer = settings.level !== 'hotseat';
+  settings.name = vsComputer ? cleanName(name) : '';
+  settings.pin = vsComputer ? pin : '';
+  settings.online = vsComputer && online;
+  settings.claimed = vsComputer && claimed;
   closeMenu();
   return newGame();
 }
@@ -556,23 +620,54 @@ menu.sides.onclick = (e) => {
   if (b) { pick.side = b.dataset.side === 'black' ? BLACK : WHITE; refreshMenu(); }
 };
 menu.name.oninput = () => {
-  menu.hint.classList.remove('bad');
-  menu.hint.textContent = 'Needed for the leaderboard.';
-  renderLeaderboard(menu.lbTable, pick.level, cleanName(menu.name.value));
+  hint(PIN_HINT);
+  refreshMenuBoard();
+};
+menu.pin.oninput = () => {
+  menu.pin.value = menu.pin.value.replace(/\D/g, '').slice(0, 4);
+  hint(PIN_HINT);
 };
 
-// Start (or Enter in the name box): against the computer, a name is required.
-menu.form.onsubmit = (e) => {
+/* Start (or Enter): against the computer, a name and a 4-digit PIN are needed.
+   The PIN is checked before the game starts, so a wrong one is found out now
+   rather than after a win. If the leaderboard cannot be reached the game still
+   starts, unranked. */
+let checking = false;
+menu.form.onsubmit = async (e) => {
   e.preventDefault();
+  if (checking) return;
   const name = cleanName(menu.name.value);
-  if (!name) {
-    menu.hint.textContent = 'Enter a username to play the computer.';
-    menu.hint.classList.add('bad');
-    menu.name.focus();
+  const pin = menu.pin.value;
+  if (!name) { hint('Enter a username to play the computer.', true); menu.name.focus(); return; }
+  if (!/^[0-9]{4}$/.test(pin)) { hint('Enter a 4-digit PIN.', true); menu.pin.focus(); return; }
+  store.set(NAME_KEY, name);
+
+  checking = true;
+  menu.start.disabled = true;
+  menu.start.textContent = 'Checking...';
+  let r;
+  try { r = await leaderboard.checkPlayer(name, pin); } catch (_) { r = { status: 'offline' }; }
+  checking = false;
+  menu.start.disabled = false;
+  menu.start.textContent = 'Start game';
+
+  if (r.status === 'wrong-pin') {
+    const left = r.tries_left;
+    hint(`Wrong PIN for ${name}. ${left} ${left === 1 ? 'try' : 'tries'} left before a 15-minute lock.`, true);
+    menu.pin.value = ''; menu.pin.focus();
     return;
   }
-  store.set(NAME_KEY, name);
-  startGame({ level: pick.level, side: pick.side, name });
+  if (r.status === 'locked') {
+    const mins = Math.max(1, Math.ceil((new Date(r.until) - Date.now()) / 60000));
+    hint(`Too many wrong PINs for ${name}. Try again in ${mins} ${mins === 1 ? 'minute' : 'minutes'}.`, true);
+    return;
+  }
+  if (r.status !== 'ok' && r.status !== 'claimed' && r.status !== 'offline') {
+    hint('That PIN was not accepted. Use 4 digits.', true);
+    return;
+  }
+  startGame({ level: pick.level, side: pick.side, name: r.name || name, pin,
+              online: r.status !== 'offline', claimed: r.status === 'claimed' });
 };
 
 el('two-players').onclick = () => startGame({ level: 'hotseat', side: WHITE });
@@ -614,5 +709,5 @@ game.reset();
 game.moveLog = [];
 view.setThetaManual(THETA_OPEN);
 refreshCaptured();
-setStatus('Choose a game', 'enter a username and pick a level');
+setStatus('Choose a game', 'enter a username and PIN, and pick a level');
 openMenu(false);
