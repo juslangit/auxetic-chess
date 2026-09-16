@@ -6,6 +6,8 @@ solid 8x8 to play on.
 
 After the 3D-printed original by **Ruven Bals**.
 
+**Play it: https://juslangit.github.io/auxetic-chess/**
+
 No build step, no dependencies. Open `index.html`, or serve the folder:
 
 ```sh
