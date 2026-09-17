@@ -187,14 +187,14 @@ NOTES = [
 # the amber deepened until it reads as text. The game's type is the system sans with a heavy
 # uppercase CHECKMATE headline, so: Inter Tight for display, Inter for body, JetBrains Mono.
 FONTS = "https://fonts.googleapis.com/css2?family=Inter+Tight:wght@700;800&family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@500&display=swap"
-LIGHT = """--ground: #F3EFE6; --surface: #FFFCF6; --ink: #1B1F26; --muted: #5B6069; --line: #DDD6C8;
-  --accent: #8A5700; --accent-soft: #F5E6C2; --flag: #FFC44A; --flag-ink: #2A1D00; --done: #2A7148;
+LIGHT = """--ground: #FAF7F2; --surface: #FFFFFF; --ink: #2B2622; --muted: #6B6259; --line: #E7E1D8;
+  --accent: #2F6BB0; --accent-soft: #D6E6FA; --flag: #FFEEC9; --flag-ink: #A97B12; --done: #2F7A5C;
   --display: "Inter Tight", "Helvetica Neue", Arial, sans-serif;
   --body: "Inter", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --heading-case: uppercase;"""
-DARK = """--ground: #0C0E12; --surface: #14171D; --ink: #E9E6DF; --muted: #9AA1AD; --line: #272C35;
-  --accent: #FFC44A; --accent-soft: #2B2415; --done: #6CC592;"""
+DARK = """--ground: #FAF7F2; --surface: #FFFFFF; --ink: #2B2622; --muted: #6B6259; --line: #E7E1D8;
+  --accent: #2F6BB0; --accent-soft: #D6E6FA; --done: #2F7A5C;"""
 
 
 # ============================== engine: the same in every game ==============================
@@ -644,8 +644,8 @@ TEMPLATE = """<!doctype html>
 <link rel="stylesheet" href="{{FONTS}}">
 <style>
 :root { {{LIGHT}} color-scheme: light; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { {{DARK}} color-scheme: dark; } }
-:root[data-theme="dark"] { {{DARK}} color-scheme: dark; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="light"]) { {{DARK}} color-scheme: light; } }
+:root[data-theme="dark"] { {{DARK}} color-scheme: light; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
