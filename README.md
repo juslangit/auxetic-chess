@@ -8,7 +8,9 @@ After the 3D-printed original by **Ruven Bals**.
 
 **Play it: https://juslangit.github.io/auxetic-chess/**
 
-No build step, no dependencies. Open `index.html`, or serve the folder:
+No build step. One dependency, **Phaser 4**, vendored in `vendor/` rather than
+fetched from a CDN, so the game still opens straight from the folder with no
+network at all. Open `index.html`, or serve the folder:
 
 ```sh
 python3 -m http.server 8000
@@ -203,9 +205,48 @@ at the top of `js/main.js`.
 | `js/chess.js` | Rules engine. 0x88 board, move generation, SAN, FEN |
 | `js/ai.js` | Negamax, alpha-beta, quiescence, killer moves, repetition, tapered eval; under the twist each piece is scored by the average of its block's four squares |
 | `js/pieces.js` | Piece artwork, baked to offscreen sprites |
-| `js/board.js` | The auxetic geometry and the canvas renderer |
+| `js/board.js` | The auxetic geometry, and the Phaser scene that draws it |
+| `js/sounds.js` | Nine CC0 sounds, embedded as data URIs (generated) |
+| `vendor/phaser.min.js` | Phaser 4.2.1, vendored |
 | `js/leaderboard.js` | Wins per computer level, saved in the browser |
 | `js/main.js` | Game flow, input, the side panel, the start screen |
+
+## The renderer
+
+The board is drawn by Phaser on WebGL, falling back to Canvas where WebGL is
+missing. What is on screen is the same geometry as before -- the fold is still
+solved from the hinge constraint every frame, and `js/board.js` still computes
+every tile transform by hand -- but the tiles, pins, pieces and backdrop are now
+game objects rather than `drawImage` calls, which is what pays for the rest: a
+vignette and a glow on the move markers, a particle burst when a piece is taken,
+camera shake on check and on mate, and a landing bounce as a piece is set down.
+
+Two things were deliberately **not** handed to Phaser:
+
+- **The animation clock.** The fold and the twist resolve promises that the game
+  flow waits on, and `isSolid` gates input for the whole transition, so both
+  still run on their own timer in `step()`. Phaser's tweens drive decoration only.
+- **Input.** The board reads one pointer on the canvas element and converts it
+  with `pointToSquare`, as it always did. Phaser's hit testing would only add a
+  frame of lag to a click.
+
+One world unit is one CSS pixel, with the canvas's top-left at the origin. The
+game itself is sized in device pixels for sharpness on a retina screen, and the
+camera is zoomed and scrolled back so that world coordinates stay in CSS pixels.
+Phaser's own `zoom` setting does not do this -- it scales the canvas's CSS size
+and leaves the backing store alone, so it makes the board bigger, never sharper.
+
+## Sound
+
+Nine sounds from Kenney's **Interface Sounds** and **Impact Sounds** packs, both
+CC0 -- public domain, no attribution required, safe to sell. They are embedded in
+`js/sounds.js` as base64 data URIs rather than kept as `.ogg` files, because
+Chrome will not fetch audio over `file://` and opening `index.html` straight from
+the folder has to keep working. Each one is played at a slightly random pitch, so
+forty piece-downs in a game do not sound like the same sample forty times.
+
+Regenerate the bank with `python3 tools/build_sounds.py` after `sfx pack
+interface-sounds && sfx pack impact-sounds`.
 
 ## Correctness
 
