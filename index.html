@@ -163,12 +163,17 @@
   </div>
 </div>
 
+<!-- Phaser drives the board renderer (js/board.js): WebGL, tweens, particles
+     and the sound manager. Vendored rather than loaded from a CDN so the page
+     still opens straight from the folder, with no build step and no network. -->
+<script src="vendor/phaser.min.js"></script>
 <script src="js/chess.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/pieces.js"></script>
 <script src="js/config.js"></script>
 <script src="js/leaderboard.js"></script>
 <script src="server/replay.js"></script>
+<script src="js/sounds.js"></script>
 <script src="js/board.js"></script>
 <script src="js/main.js"></script>
 </body>

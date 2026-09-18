@@ -1,4 +1,4 @@
-/* Auxetic board renderer.
+/* Auxetic board renderer, on Phaser.
 
    The board is 16 rigid square tiles, side a, each carrying a 2x2 patch of the
    checkerboard. Tiles are hinged at shared corners and alternate their rotation
@@ -12,7 +12,28 @@
    Because every tile carries the same 2x2 patch -- square (f,r) has colour
    parity (f+r)%2, and a tile starts at even f and even r, so its local parity
    is (u+v)%2 regardless of which tile it is -- all 16 tiles are identical.
-   That is why the real thing can be printed 16 times from one model. */
+   That is why the real thing can be printed 16 times from one model.
+
+   ---
+
+   All of the geometry above is unchanged and still computed here by hand; what
+   Phaser replaced is everything *underneath* it. The tiles, pins, pieces and
+   backdrop used to be blitted with ctx.drawImage sixty times a second. They are
+   now Phaser game objects on a WebGL renderer, which is what buys the rest:
+   real tweens, a particle system, camera shake, per-object filters, and a sound
+   manager that can overlap samples.
+
+   Two rules kept the swap safe:
+
+   1. `BoardView` exposes exactly the API js/main.js and the six browser tests
+      already used -- squareLayout, pointToSquare, isSolid, animateTo, twistOnce,
+      setThetaManual, setTwistAngle, animateMove, flipped, selected,
+      legalTargets, lastMove, checkSquare, pieceAnim, hover, onSquareClick --
+      with the same units: CSS pixels measured from the canvas's top-left.
+   2. The animation state machine still runs on its own clock, in `step()`, not
+      on Phaser tweens. The fold and the twist have to resolve their promises at
+      the exact moment the engine expects, and `isSolid` gates input for the
+      whole transition. Phaser's tweens drive the decoration instead. */
 
 const DEG = Math.PI / 180;
 const THETA_OPEN = -45 * DEG;     // fully bloomed
@@ -30,13 +51,24 @@ const PALETTE = {
   check: 'rgba(226, 74, 62, 0.68)',
 };
 
-/* One blurred rounded-square, built once and blitted per tile. */
+// The same colours again as integers, for the parts of Phaser that want one.
+const HEX = {
+  amber: 0xffc44a,
+  red: 0xe24a3e,
+  warm: 0xf7f4ee,
+  dark: 0x23272e,
+};
+
+/* ---- baked textures ----
+
+   Every texture is drawn into an offscreen canvas once and handed to Phaser.
+   Nothing is loaded over the network, which is what lets the page keep working
+   when it is opened straight from the folder over file:// (D-004). */
+
 const SHADOW_SIDE = 220;          // the tile edge inside the sprite
 const SHADOW_BOX = 300;           // sprite extent, leaving room for the blur
-let _shadowSprite = null;
 
-function tileShadowSprite() {
-  if (_shadowSprite) return _shadowSprite;
+function shadowCanvas() {
   const c = document.createElement('canvas');
   c.width = c.height = SHADOW_BOX;
   const x = c.getContext('2d');
@@ -52,18 +84,15 @@ function tileShadowSprite() {
   x.arcTo(-h, -h, h, -h, r);
   x.closePath();
   x.fill();
-  _shadowSprite = c;
   return c;
 }
 
 /* Every tile carries the same 2x2 patch. In screen space a tile's local colour
-   parity is (u+v)%2 whichever way the board is flipped, so ONE baked sprite
+   parity is (u+v)%2 whichever way the board is flipped, so ONE baked texture
    serves all sixteen -- the same reason the physical board needs one print. */
 const TILE_REF = 320;
-let _tileBody = null, _pinSprite = null;
 
-function tileBodySprite() {
-  if (_tileBody) return _tileBody;
+function tileCanvas() {
   const c = document.createElement('canvas');
   c.width = c.height = TILE_REF;
   const x = c.getContext('2d');
@@ -95,6 +124,17 @@ function tileBodySprite() {
     x.lineWidth = 1.5;
     x.strokeRect(-half + u * cell + 0.75, -half + v * cell + 0.75, cell, cell);
   }
+
+  // A soft sheen across the plastic, laid inside the clip so it stops at the
+  // tile edge. WebGL shows a flat fill for exactly what it is; this is what
+  // stops sixteen identical tiles reading as printed paper.
+  const sheen = x.createLinearGradient(-half, -half, half, half);
+  sheen.addColorStop(0.00, 'rgba(255,255,255,0.10)');
+  sheen.addColorStop(0.35, 'rgba(255,255,255,0.02)');
+  sheen.addColorStop(0.62, 'rgba(0,0,0,0.04)');
+  sheen.addColorStop(1.00, 'rgba(0,0,0,0.12)');
+  x.fillStyle = sheen;
+  x.fillRect(-half, -half, TILE_REF, TILE_REF);
   x.restore();
 
   // bevel: light from the upper left, dark on the lower right
@@ -107,13 +147,12 @@ function tileBodySprite() {
   x.lineWidth = TILE_REF * 0.022;
   x.stroke();
 
-  _tileBody = c;
   return c;
 }
 
 const PIN_REF = 96;
-function pinSprite() {
-  if (_pinSprite) return _pinSprite;
+
+function pinCanvas() {
   const c = document.createElement('canvas');
   c.width = c.height = PIN_REF;
   const x = c.getContext('2d');
@@ -124,17 +163,215 @@ function pinSprite() {
   x.lineWidth = r * 0.22; x.strokeStyle = PALETTE.pinEdge; x.stroke();
   x.beginPath(); x.arc(0, 0, r * 0.42, 0, Math.PI * 2);
   x.fillStyle = 'rgba(0,0,0,0.18)'; x.fill();
-  _pinSprite = c;
+  // a highlight, so a pin reads as a turned metal loop rather than a flat disc
+  const g = x.createRadialGradient(-r * 0.3, -r * 0.35, 1, 0, 0, r);
+  g.addColorStop(0, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.fill();
+  return c;
+}
+
+// A soft round grain, used for every particle: capture debris, twist dust and
+// the checkmate burst. Tinted per emitter rather than baked six times.
+const SPARK_REF = 48;
+
+function sparkCanvas() {
+  const c = document.createElement('canvas');
+  c.width = c.height = SPARK_REF;
+  const x = c.getContext('2d');
+  const m = SPARK_REF / 2;
+  const g = x.createRadialGradient(m, m, 0, m, m, m);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, SPARK_REF, SPARK_REF);
   return c;
 }
 
 const easeInOutQuart = (t) => t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
+/* ---- sound ----
+
+   Nine CC0 samples carried in the page as data URIs (js/sounds.js), played
+   through Phaser's sound manager so they can overlap and be pitched. Every
+   entry sets its own volume and a random rate window, because a chess game
+   plays the same "piece down" sound forty times and an identical sample forty
+   times running is what makes a game sound cheap. */
+const SOUND_SPEC = {
+  select:  { volume: 0.30, rate: [0.96, 1.06] },
+  move:    { volume: 0.45, rate: [0.92, 1.08] },
+  capture: { volume: 0.60, rate: [0.88, 1.00] },
+  twist:   { volume: 0.28, rate: [0.90, 1.02] },
+  fold:    { volume: 0.30, rate: [0.94, 1.00] },
+  close:   { volume: 0.32, rate: [0.94, 1.00] },
+  check:   { volume: 0.40, rate: [0.98, 1.04] },
+  end:     { volume: 0.50, rate: [1.00, 1.00] },
+  illegal: { volume: 0.30, rate: [0.98, 1.06] },
+};
+
+class Sfx {
+  constructor() {
+    this.scene = null;
+    this.ready = false;
+    this.muted = false;
+  }
+
+  attach(scene) {
+    this.scene = scene;
+    this.ready = true;
+  }
+
+  /* Browsers refuse to start audio until the page has been touched. Phaser
+     parks the sound manager in that case and unlocks it on the first gesture,
+     so a call before then is dropped rather than queued -- which is right: a
+     sound that arrives four seconds late is worse than no sound. */
+  play(kind, opts = {}) {
+    if (this.muted || !this.ready) return;
+    const spec = SOUND_SPEC[kind];
+    if (!spec) return;
+    try {
+      const [lo, hi] = spec.rate;
+      this.scene.sound.play(`sfx-${kind}`, {
+        volume: (opts.volume ?? 1) * spec.volume,
+        rate: lo + Math.random() * (hi - lo),
+        detune: opts.detune ?? 0,
+      });
+    } catch (_) { /* sound is a nicety, never a failure */ }
+  }
+}
+
+/* ---- the scene ----
+
+   BoardScene owns the game objects and nothing else. Every number it draws with
+   comes from the BoardView it was handed, so the view stays the single place
+   where the board's state lives. */
+class BoardScene extends Phaser.Scene {
+  constructor(view) {
+    super({ key: 'board' });
+    this.view = view;
+  }
+
+  preload() {
+    if (typeof SOUND_BANK === 'undefined') return;
+    for (const [kind, uri] of Object.entries(SOUND_BANK)) {
+      this.load.audio(`sfx-${kind}`, uri);
+    }
+  }
+
+  create() {
+    const t = this.textures;
+    if (!t.exists('tile')) t.addCanvas('tile', tileCanvas());
+    if (!t.exists('pin')) t.addCanvas('pin', pinCanvas());
+    if (!t.exists('tileShadow')) t.addCanvas('tileShadow', shadowCanvas());
+    if (!t.exists('spark')) t.addCanvas('spark', sparkCanvas());
+    this.bakePieces();
+
+    // Depth order matches the old painter: backdrop, shadows, tiles, the square
+    // markers, then the hinge pins, then the pieces standing on top.
+    this.bg = this.add.image(0, 0, this.bakeBackdrop()).setOrigin(0, 0).setDepth(0)
+      .setDisplaySize(this.view.w, this.view.h);
+
+    this.shadows = [];
+    this.tiles = [];
+    this.pins = [];
+    for (let i = 0; i < 16; i++) {
+      this.shadows.push(this.add.image(0, 0, 'tileShadow').setDepth(10));
+      this.tiles.push(this.add.image(0, 0, 'tile').setDepth(20));
+      for (let k = 0; k < 4; k++) this.pins.push(this.add.image(0, 0, 'pin').setDepth(40));
+    }
+
+    this.marks = this.add.graphics().setDepth(30);
+    this.pieces = [];              // pooled, assigned to squares each frame
+
+    this.sparks = this.add.particles(0, 0, 'spark', {
+      lifespan: 620, speed: { min: 40, max: 210 }, scale: { start: 0.55, end: 0 },
+      alpha: { start: 0.9, end: 0 }, gravityY: 320, blendMode: 'ADD',
+      emitting: false,
+    }).setDepth(60);
+
+    this.applyFilters();
+
+    this.view.sfx.attach(this);
+    this.view.onSceneReady(this);
+  }
+
+  /* Each piece is drawn by js/pieces.js into a 320px offscreen canvas -- the
+     same lathe profiles, shading and contact shadow as before -- and that canvas
+     becomes a Phaser texture. The artwork is untouched; only its delivery
+     changed. */
+  bakePieces() {
+    for (const type of [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING]) {
+      for (const color of [WHITE, BLACK]) {
+        const key = `p${type}-${color}`;
+        if (!this.textures.exists(key)) this.textures.addCanvas(key, pieceSprite(type, color));
+      }
+    }
+  }
+
+  /* The backdrop is a radial gradient the size of the canvas, so it is rebaked
+     whenever the canvas changes size and at no other time. */
+  bakeBackdrop() {
+    const v = this.view;
+    const key = 'backdrop';
+    if (this.textures.exists(key)) this.textures.remove(key);
+    const c = document.createElement('canvas');
+    // Baked at device resolution, shown at CSS size: a gradient stretched from
+    // half-resolution is the one thing on screen that would band visibly.
+    c.width = Math.max(1, Math.round(v.w * v.dpr));
+    c.height = Math.max(1, Math.round(v.h * v.dpr));
+    const x = c.getContext('2d');
+    x.scale(v.dpr, v.dpr);
+    const g = x.createRadialGradient(v.w / 2, v.h * 0.36, 20,
+                                     v.w / 2, v.h * 0.6, Math.max(v.w, v.h) * 0.78);
+    g.addColorStop(0, PALETTE.bg0);
+    g.addColorStop(1, PALETTE.bg1);
+    x.fillStyle = g;
+    x.fillRect(0, 0, v.w, v.h);
+    this.textures.addCanvas(key, c);
+    return key;
+  }
+
+  /* Filters are the one part of this that is allowed to fail quietly. They are
+     pure decoration, they are the most version-sensitive thing here, and a
+     renderer without them still plays chess -- so a missing one must never take
+     the board down with it. */
+  applyFilters() {
+    // A camera already has a filter list and must not be told to enable one --
+    // `enableFilters` is a game-object method, and calling it on a camera throws.
+    try {
+      // Wide and weak. A vignette is meant to settle the eye in the middle of
+      // the board, and anything stronger than this starts eating the back ranks
+      // -- a chess piece you have to squint at is a worse trade than a flat
+      // backdrop, however good the screenshot looks.
+      this.cameras.main.filters.internal.addVignette(0.5, 0.5, 0.95, 0.22);
+    } catch (_) { /* no vignette, no problem */ }
+    try {
+      // Enough glow to find a legal-move dot on a phone in daylight, not so much
+      // that the halo swamps the dot's own colour -- which is what tells you
+      // whether the square under it is light or dark.
+      this.marks.enableFilters();
+      this.marks.filters.internal.addGlow(HEX.amber, 1.5, 0, 1, false, 6, 6);
+    } catch (_) { /* markers still draw, just flat */ }
+  }
+
+  resized() {
+    this.bg.setTexture(this.bakeBackdrop());
+    this.bg.setDisplaySize(this.view.w, this.view.h);
+  }
+
+  update() {
+    const now = performance.now();
+    this.view.step(now);
+    this.view.sync(now);
+  }
+}
+
 class BoardView {
   constructor(canvas, game) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
     this.game = game;
 
     this.theta = THETA_OPEN;
@@ -161,47 +398,143 @@ class BoardView {
     this.pieceAnim = null;        // {parts:[{piece,from,to}], t0, dur}
     this.onSquareClick = null;
 
-    this.resize();
+    this.sfx = new Sfx();
+    this.scene = null;
+    // Pieces that landed this move and are still settling, keyed by square.
+    this._landing = new Map();
+    this._lastTwistAnim = null;
+    this._lastTheta = this.theta;
+
+    this.measure();
+    this.bootPhaser();
+
     window.addEventListener('resize', () => this.resize());
+    // The canvas can change size without the window doing so -- a phone turning,
+    // the side panel growing as the move list fills, the browser's address bar
+    // sliding away. Watching the element itself catches all of those; watching
+    // the window, as this used to, catches only the first.
+    if (window.ResizeObserver) {
+      this._ro = new ResizeObserver(() => this.resize());
+      this._ro.observe(canvas);
+    }
     canvas.addEventListener('pointerdown', (e) => this.handlePointer(e, true));
     canvas.addEventListener('pointermove', (e) => this.handlePointer(e, false));
     canvas.addEventListener('pointerleave', () => { this.hover = -1; });
 
-    this.loop = this.loop.bind(this);
-    requestAnimationFrame(this.loop);
+    // Until the scene is alive nothing advances the fold, and main.js starts it
+    // blooming the moment the page loads. This carries the state machine over
+    // the boot gap and stands down as soon as the scene takes over.
+    this._preBoot = (now) => {
+      if (this.scene) return;
+      this.step(now);
+      requestAnimationFrame(this._preBoot);
+    };
+    requestAnimationFrame(this._preBoot);
   }
 
-  resize() {
+  /* ---- boot and size ----
+
+     The game runs in CSS pixels: one world unit is one CSS pixel, with the
+     canvas's top-left at (0,0). That is what `squareLayout` has always returned
+     and what the browser tests add their element origin to, so it is the one
+     thing about this file that is not free to change.
+
+     Retina sharpness and that promise pull in opposite directions, and the
+     camera is what reconciles them. The game is sized in *device* pixels, so
+     the backing store is as sharp as the screen allows; the camera is then
+     zoomed by the same factor and scrolled back, which leaves one world unit
+     worth exactly one CSS pixel with world (0,0) on the canvas corner.
+
+     Phaser's own `zoom` config is not that. It scales the canvas's CSS size and
+     says so -- "the canvas pixel size remains untouched" -- so it makes the
+     board bigger, never sharper.
+
+     Phaser also wants to size the canvas element to match the game, which would
+     burst the layout, so the element is pinned back to the 100%/100% the
+     stylesheet asks for. */
+  measure() {
     const rect = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(rect.width * dpr);
-    this.canvas.height = Math.round(rect.height * dpr);
-    this.dpr = dpr;
-    this.w = rect.width;
-    this.h = rect.height;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.bg = null;                 // rebuilt lazily at the new size
+    this.w = Math.max(1, rect.width);
+    this.h = Math.max(1, rect.height);
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  }
+
+  pinCanvasStyle() {
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+  }
+
+  /* Phaser picks a renderer for itself only when it makes its own canvas. This
+     one is handed the #board element that was already in the page -- which is
+     what keeps the layout, the CSS and the tests' `getBoundingClientRect()`
+     exactly as they were -- and in return it insists on being told WebGL or
+     Canvas outright. So ask a throwaway canvas whether WebGL exists at all:
+     support is a property of the browser, not of one element.
+
+     Canvas is a real fallback, not a failure. The board still plays; it loses
+     the vignette and the marker glow, which are filters and WebGL-only. */
+  detectRenderType() {
+    try {
+      const probe = document.createElement('canvas');
+      const gl = probe.getContext('webgl2') || probe.getContext('webgl');
+      if (gl) {
+        const lose = gl.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+        return Phaser.WEBGL;
+      }
+    } catch (_) { /* fall through */ }
+    return Phaser.CANVAS;
+  }
+
+  bootPhaser() {
+    this.phaser = new Phaser.Game({
+      type: this.detectRenderType(),
+      canvas: this.canvas,
+      width: this.w * this.dpr,
+      height: this.h * this.dpr,
+      transparent: true,
+      banner: false,
+      audio: { disableWebAudio: false },
+      // Input is handled on the canvas element directly, below: the board reads
+      // one pointer and converts it with pointToSquare, and going through
+      // Phaser's hit testing would only add a frame of lag to a click.
+      input: { keyboard: false, gamepad: false, mouse: false, touch: false },
+      scale: { mode: Phaser.Scale.NONE, autoRound: false },
+      scene: new BoardScene(this),
+    });
+    this.pinCanvasStyle();
+  }
+
+  onSceneReady(scene) {
+    this.scene = scene;
+    this.aimCamera();
+    this.pinCanvasStyle();
     this._tc = null;
   }
 
-  // The backdrop never changes between resizes, so paint it once and blit it.
-  background() {
-    if (this.bg && this.bg.width === this.canvas.width && this.bg.height === this.canvas.height) {
-      return this.bg;
-    }
-    const c = document.createElement('canvas');
-    c.width = this.canvas.width;
-    c.height = this.canvas.height;
-    const x = c.getContext('2d');
-    x.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    const g = x.createRadialGradient(this.w / 2, this.h * 0.36, 20,
-                                     this.w / 2, this.h * 0.6, Math.max(this.w, this.h) * 0.78);
-    g.addColorStop(0, PALETTE.bg0);
-    g.addColorStop(1, PALETTE.bg1);
-    x.fillStyle = g;
-    x.fillRect(0, 0, this.w, this.h);
-    this.bg = c;
-    return c;
+  /* Put one CSS pixel back on one world unit.
+
+     The camera zooms about its own midpoint, so zooming alone would pin the
+     centre of the board and push its corners off the canvas. Scrolling by
+     c*(1-z)/z undoes that: with camera half-width c and zoom z, a world point
+     lands at (world - scroll - c)*z + c, and that scroll makes it world*z --
+     which is to say world (0,0) sits on the canvas corner and the board fills
+     the canvas exactly as it did when this was a 2D context. */
+  aimCamera() {
+    if (!this.scene) return;
+    const cam = this.scene.cameras.main;
+    cam.setZoom(this.dpr);
+    cam.setScroll((this.w / 2) * (1 - this.dpr), (this.h / 2) * (1 - this.dpr));
+  }
+
+  resize() {
+    this.measure();
+    this._tc = null;
+    if (!this.scene) return;
+    this.scene.scale.resize(this.w * this.dpr, this.h * this.dpr);
+    this.aimCamera();
+    this.scene.resized();
+    this.pinCanvasStyle();
   }
 
   /* ---- geometry ---- */
@@ -301,6 +634,7 @@ class BoardView {
   animateTo(theta, dur = 1500, ease = easeInOutQuart) {
     // Settle any tween we are replacing, or whoever awaited it waits forever.
     if (this.tween && this.tween.onDone) this.tween.onDone();
+    this.sfx.play(theta === THETA_SOLID ? 'close' : 'fold');
     return new Promise((resolve) => {
       this.tween = { from: this.theta, to: theta, t0: performance.now(), dur, ease, onDone: resolve };
     });
@@ -315,7 +649,7 @@ class BoardView {
      it is what makes `isSolid` false, which keeps the whole transition atomic
      instead of letting input back in during the pause.
 
-     While this runs, `drawPieces` places every piece by the square it came FROM
+     While this runs, `syncPieces` places every piece by the square it came FROM
      -- the engine has already moved them on -- and swings it round its tile
      centre. At a quarter turn that arc lands exactly on the new square. */
   twistOnce(dur = 430, delay = 200) {
@@ -323,7 +657,7 @@ class BoardView {
     return new Promise((resolve) => {
       this.twistAnim = {
         base: this.twistAngle, t0: performance.now() + delay,
-        dur, ease: easeInOutQuart, onDone: resolve,
+        dur, ease: easeInOutQuart, onDone: resolve, spoke: false,
       };
     });
   }
@@ -344,9 +678,41 @@ class BoardView {
   // Slide pieces along their move. `parts` lets castling move king and rook together.
   animateMove(parts, dur = 210) {
     this.pieceAnim = { parts, t0: performance.now(), dur };
+    // Remember where each piece is going, so it can be given a landing bounce
+    // and, if it took something, a puff of debris at the moment of contact.
+    for (const p of parts) this._landing.set(p.to, { t0: performance.now() + dur, done: false });
   }
 
-  loop(now) {
+  /* A capture, told to the renderer by main.js. The board itself cannot see one:
+     by the time it draws, the engine has already removed the taken piece. */
+  capturedAt(sqIndex) {
+    if (!this.scene) return;
+    const L = this.squareLayout(sqIndex);
+    this.scene.sparks.setParticleTint(HEX.warm);
+    this.scene.sparks.emitParticleAt(L.x, L.y, 14);
+    this.scene.cameras.main.shake(140, 0.004);
+  }
+
+  /* Check, and the end of the game: the two moments worth feeling. */
+  alarm(kind) {
+    if (!this.scene) return;
+    const cam = this.scene.cameras.main;
+    if (kind === 'check') {
+      cam.shake(180, 0.006);
+    } else if (kind === 'end') {
+      cam.shake(520, 0.011);
+      const c = this.squareSize() * 4;
+      this.scene.sparks.setParticleTint(HEX.amber);
+      this.scene.sparks.emitParticleAt(this.w / 2, this.h / 2 - c * 0.2, 90);
+    }
+  }
+
+  /* ---- the clock ----
+
+     One step per frame, advancing the three motions and firing the sounds and
+     effects that belong to them. Kept off Phaser's tween system on purpose: the
+     promises these resolve are what the engine waits on. */
+  step(now) {
     if (this.tween) {
       const t = Math.min(1, (now - this.tween.t0) / this.tween.dur);
       this.theta = this.tween.from + (this.tween.to - this.tween.from) * this.tween.ease(t);
@@ -354,6 +720,8 @@ class BoardView {
     }
     if (this.twistAnim) {
       const tw = this.twistAnim;
+      // The mechanism speaks when it starts moving, not when it was asked to.
+      if (!tw.spoke && now >= tw.t0) { tw.spoke = true; this.sfx.play('twist'); }
       this.twistAngle = tw.base + this.twistAlpha(now);
       if (now - tw.t0 >= tw.dur) {
         // keep the accumulated angle bounded; a quarter turn is all that shows
@@ -364,52 +732,51 @@ class BoardView {
       }
     }
     if (this.pieceAnim && now - this.pieceAnim.t0 >= this.pieceAnim.dur) this.pieceAnim = null;
-    this.render(now);
-    requestAnimationFrame(this.loop);
+
+    // A piece that has just come to rest taps the board once.
+    for (const [sq, land] of this._landing) {
+      if (!land.done && now >= land.t0) {
+        land.done = true;
+        land.settled = now;
+      }
+      if (land.done && now - land.settled > 260) this._landing.delete(sq);
+    }
   }
 
-  /* ---- painting ---- */
+  /* ---- drawing ----
 
-  render(now) {
-    const ctx = this.ctx;
-    ctx.drawImage(this.background(), 0, 0, this.w, this.h);
-
+     Everything below only moves game objects; no state is decided here. */
+  sync(now) {
+    const s = this.scene;
+    if (!s) return;
     const bloom = Math.abs(this.theta / THETA_OPEN);      // 0 solid .. 1 bloomed
 
-    // Shadows first, so no tile casts onto another. The blur is baked into a
-    // sprite once: running ctx.filter per tile per frame costs ~4 fps.
-    const shadow = tileShadowSprite();
-    ctx.save();
-    ctx.globalAlpha = 0.5 * (1 - bloom * 0.35);
     for (let jj = 0; jj < 4; jj++) for (let ii = 0; ii < 4; ii++) {
+      const i = jj * 4 + ii;
       const t = this.tileTransform(ii, jj);
-      const scale = t.a / SHADOW_SIDE;
-      const span = SHADOW_BOX * scale;
-      ctx.save();
-      ctx.translate(t.cx, t.cy + t.a * 0.05);
-      ctx.rotate(t.paintRot);
-      ctx.drawImage(shadow, -span / 2, -span / 2, span, span);
-      ctx.restore();
+
+      const sh = s.shadows[i];
+      const span = SHADOW_BOX * (t.a / SHADOW_SIDE);
+      sh.setPosition(t.cx, t.cy + t.a * 0.05).setRotation(t.paintRot)
+        .setDisplaySize(span, span).setAlpha(0.5 * (1 - bloom * 0.35));
+
+      s.tiles[i].setPosition(t.cx, t.cy).setRotation(t.paintRot).setDisplaySize(t.a, t.a);
+
+      // The hinge loops. Every tile corner carries one; where two tiles meet
+      // they land on the same point and read as a single pin, and around the rim
+      // they stick out the way they do on the printed board.
+      const R = t.a / Math.SQRT2;
+      const pinSpan = t.a * 0.22;
+      for (let k = 0; k < 4; k++) {
+        const ang = (45 + 90 * k) * DEG + t.gridRot;
+        s.pins[i * 4 + k]
+          .setPosition(t.cx + R * Math.cos(ang), t.cy + R * Math.sin(ang))
+          .setDisplaySize(pinSpan, pinSpan);
+      }
     }
-    ctx.restore();
 
-    for (let jj = 0; jj < 4; jj++) for (let ii = 0; ii < 4; ii++) this.drawTile(ii, jj, now);
-    for (let jj = 0; jj < 4; jj++) for (let ii = 0; ii < 4; ii++) this.drawPins(ii, jj);
-
-    // Pieces are drawn upright, outside any tile transform: five of the six
-    // types are lathe shapes and look identical from every direction, which is
-    // what happens to the real turned pieces when the tile spins under them.
-    this.drawPieces(now);
-  }
-
-  roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
+    this.syncMarks(now);
+    this.syncPieces(now);
   }
 
   // Which chess square sits at screen slot (ii,jj,u,v)?
@@ -420,7 +787,7 @@ class BoardView {
     return r * 16 + f;
   }
 
-  /* Is the painted square at tile slot (u,v) light? The tile sprite is light
+  /* Is the painted square at tile slot (u,v) light? The tile texture is light
      where (u+v) is even, but the paint turns with the twist, and each quarter
      turn swaps light and dark. So after an odd number of quarters the answer
      flips. The move dots use this to pick a colour that shows up. */
@@ -437,79 +804,62 @@ class BoardView {
      of 90 degrees and the cells line up either way; mid-twist they come apart,
      and that is correct: the markers stay on their squares while the tile spins
      underneath. */
-  drawTile(ii, jj, now) {
-    const ctx = this.ctx;
-    const t = this.tileTransform(ii, jj);
-    const half = t.a / 2;
+  syncMarks(now) {
+    const g = this.scene.marks;
+    g.clear();
 
-    // the plastic, turned by the twist
-    ctx.save();
-    ctx.translate(t.cx, t.cy);
-    ctx.rotate(t.paintRot);
-    ctx.drawImage(tileBodySprite(), -half, -half, t.a, t.a);
-    ctx.restore();
+    // One slow breath shared by everything that pulses, so the selected square,
+    // its dots and the king in check are all on the same rhythm.
+    const pulse = 0.5 + 0.5 * Math.sin(now / 320);
 
-    // Only the live state is painted per frame; the plastic is baked.
-    const marks = [];
-    for (let v = 0; v < 2; v++) for (let u = 0; u < 2; u++) {
-      const sqIdx = this.screenToSquare(ii, jj, u, v);
-      const isLight = this.slotIsLight(u, v);
-      const sel = sqIdx === this.selected;
-      const last = this.lastMove && (sqIdx === this.lastMove.from || sqIdx === this.lastMove.to);
-      const chk = sqIdx === this.checkSquare;
-      const tgt = this.legalTargets.includes(sqIdx);
-      const hov = this.isSolid && sqIdx === this.hover && !sel &&
-        this.game.board[sqIdx] !== EMPTY && colorOf(this.game.board[sqIdx]) === this.game.turn;
-      if (sel || last || chk || tgt || hov) {
-        marks.push({ u, v, isLight, sel, last, chk, tgt, hov, occupied: this.game.board[sqIdx] !== EMPTY });
-      }
-    }
-    if (!marks.length) return;
-
-    // the markers, in the grid's own orientation
-    ctx.save();
-    ctx.translate(t.cx, t.cy);
-    ctx.rotate(t.gridRot);
-    for (const m of marks) {
-      const x = -half + m.u * t.s, y = -half + m.v * t.s;
-      if (m.chk) { ctx.fillStyle = PALETTE.check; ctx.fillRect(x, y, t.s, t.s); }
-      if (m.last) { ctx.fillStyle = PALETTE.last; ctx.fillRect(x, y, t.s, t.s); }
-      if (m.sel) { ctx.fillStyle = PALETTE.sel; ctx.fillRect(x, y, t.s, t.s); }
-      if (m.hov) {
-        ctx.strokeStyle = 'rgba(255,196,74,0.5)';
-        ctx.lineWidth = t.s * 0.05;
-        ctx.strokeRect(x + t.s * 0.025, y + t.s * 0.025, t.s * 0.95, t.s * 0.95);
-      }
-      if (m.tgt) {
-        ctx.fillStyle = m.isLight ? PALETTE.dot : PALETTE.dotLight;
-        ctx.beginPath();
-        if (m.occupied) {
-          ctx.lineWidth = t.s * 0.085;
-          ctx.strokeStyle = ctx.fillStyle;
-          ctx.arc(x + t.s / 2, y + t.s / 2, t.s * 0.40, 0, Math.PI * 2);
-          ctx.stroke();
-        } else {
-          ctx.arc(x + t.s / 2, y + t.s / 2, t.s * 0.125, 0, Math.PI * 2);
-          ctx.fill();
+    for (let jj = 0; jj < 4; jj++) for (let ii = 0; ii < 4; ii++) {
+      const t = this.tileTransform(ii, jj);
+      const half = t.a / 2;
+      const marks = [];
+      for (let v = 0; v < 2; v++) for (let u = 0; u < 2; u++) {
+        const sqIdx = this.screenToSquare(ii, jj, u, v);
+        const isLight = this.slotIsLight(u, v);
+        const sel = sqIdx === this.selected;
+        const last = this.lastMove && (sqIdx === this.lastMove.from || sqIdx === this.lastMove.to);
+        const chk = sqIdx === this.checkSquare;
+        const tgt = this.legalTargets.includes(sqIdx);
+        const hov = this.isSolid && sqIdx === this.hover && !sel &&
+          this.game.board[sqIdx] !== EMPTY && colorOf(this.game.board[sqIdx]) === this.game.turn;
+        if (sel || last || chk || tgt || hov) {
+          marks.push({ u, v, isLight, sel, last, chk, tgt, hov, occupied: this.game.board[sqIdx] !== EMPTY });
         }
       }
-    }
-    ctx.restore();
-  }
+      if (!marks.length) continue;
 
-  // The hinge loops. Every tile corner carries one; where two tiles meet they
-  // land on the same point and read as a single pin, and around the rim they
-  // stick out the way they do on the printed board.
-  drawPins(ii, jj) {
-    const ctx = this.ctx;
-    const t = this.tileTransform(ii, jj);
-    const R = t.a / Math.SQRT2;
-    const span = t.a * 0.22;
-    const pin = pinSprite();
-    for (let k = 0; k < 4; k++) {
-      const ang = (45 + 90 * k) * DEG + t.gridRot;
-      const x = t.cx + R * Math.cos(ang), y = t.cy + R * Math.sin(ang);
-      ctx.drawImage(pin, x - span / 2, y - span / 2, span, span);
+      g.save();
+      g.translateCanvas(t.cx, t.cy);
+      g.rotateCanvas(t.gridRot);
+      for (const m of marks) {
+        const x = -half + m.u * t.s, y = -half + m.v * t.s;
+        if (m.chk) {
+          // check breathes; a flat red square is easy to stop noticing
+          g.fillStyle(HEX.red, 0.42 + 0.30 * pulse);
+          g.fillRect(x, y, t.s, t.s);
+        }
+        if (m.last) { g.fillStyle(HEX.amber, 0.22); g.fillRect(x, y, t.s, t.s); }
+        if (m.sel) { g.fillStyle(HEX.amber, 0.40 + 0.18 * pulse); g.fillRect(x, y, t.s, t.s); }
+        if (m.hov) {
+          g.lineStyle(t.s * 0.05, HEX.amber, 0.5);
+          g.strokeRect(x + t.s * 0.025, y + t.s * 0.025, t.s * 0.95, t.s * 0.95);
+        }
+        if (m.tgt) {
+          const c = m.isLight ? HEX.dark : HEX.warm;
+          const a = (m.isLight ? 0.36 : 0.42) + 0.14 * pulse;
+          if (m.occupied) {
+            g.lineStyle(t.s * 0.085, c, a);
+            g.strokeCircle(x + t.s / 2, y + t.s / 2, t.s * 0.40);
+          } else {
+            g.fillStyle(c, a);
+            g.fillCircle(x + t.s / 2, y + t.s / 2, t.s * (0.115 + 0.022 * pulse));
+          }
+        }
+      }
+      g.restore();
     }
   }
 
@@ -561,14 +911,43 @@ class BoardView {
     return { x, y, lift, size: L.size };
   }
 
-  drawPieces(now) {
-    const ctx = this.ctx;
+  /* Pieces are drawn upright, outside any tile transform: five of the six types
+     are lathe shapes and look identical from every direction, which is what
+     happens to the real turned pieces when the tile spins under them.
+
+     The images are pooled rather than created per frame -- at most 32 exist,
+     and the spare ones are parked invisible. */
+  syncPieces(now) {
+    const s = this.scene;
+    let n = 0;
     for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
       const sqIdx = r * 16 + f;
       const p = this.game.board[sqIdx];
       if (p === EMPTY) continue;
+
+      let img = s.pieces[n];
+      if (!img) { img = s.add.image(0, 0, 'p1-0').setDepth(50); s.pieces[n] = img; }
+      n++;
+
       const P = this.piecePosition(sqIdx, now);
-      drawPiece(ctx, typeOf(p), colorOf(p), P.x, P.y - P.lift, P.size * 0.96);
+      const k = PIECE_H * P.size / 100;          // authored units -> px
+      const span = SPRITE_UNITS * k;
+
+      // A piece that has just landed squashes and comes back, which is what sells
+      // the weight of a plastic chess piece being set down.
+      let sx = 1, sy = 1;
+      const land = this._landing.get(sqIdx);
+      if (land && land.done) {
+        const e = Math.min(1, (now - land.settled) / 260);
+        const bump = Math.sin(e * Math.PI) * (1 - e) * 0.13;
+        sx = 1 + bump; sy = 1 - bump;
+      }
+
+      img.setTexture(`p${typeOf(p)}-${colorOf(p)}`)
+         .setVisible(true)
+         .setPosition(P.x, P.y - P.lift + BASE_DROP * P.size - 42 * k)
+         .setDisplaySize(span * sx, span * sy);
     }
+    for (let i = n; i < s.pieces.length; i++) s.pieces[i].setVisible(false);
   }
 }
