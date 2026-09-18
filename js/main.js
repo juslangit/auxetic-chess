@@ -49,30 +49,17 @@ let winState = '';
 // game carries the old epoch and is dropped, so it can never move for the player.
 let epoch = 0;
 
-/* ---- sound: a small synth, no files to load ---- */
-let audio = null;
-const sound = (kind) => {
-  try {
-    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
-    const t = audio.currentTime;
-    const spec = {
-      move:    { f: 320, f2: 150, dur: 0.10, gain: 0.16, type: 'triangle' },
-      capture: { f: 190, f2: 70,  dur: 0.17, gain: 0.24, type: 'sawtooth' },
-      fold:    { f: 110, f2: 260, dur: 0.55, gain: 0.09, type: 'sine' },
-      end:     { f: 440, f2: 660, dur: 0.5,  gain: 0.16, type: 'sine' },
-    }[kind];
-    const osc = audio.createOscillator(), g = audio.createGain(), lp = audio.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 2200;
-    osc.type = spec.type;
-    osc.frequency.setValueAtTime(spec.f, t);
-    osc.frequency.exponentialRampToValueAtTime(spec.f2, t + spec.dur);
-    g.gain.setValueAtTime(spec.gain, t);
-    g.gain.exponentialRampToValueAtTime(0.0006, t + spec.dur);
-    osc.connect(lp); lp.connect(g); g.connect(audio.destination);
-    osc.start(t); osc.stop(t + spec.dur + 0.02);
-  } catch (_) { /* audio is a nicety, never a failure */ }
-};
+/* ---- sound ----
+
+   The board owns the sound now: nine CC0 samples (js/sounds.js) played through
+   Phaser's sound manager, which can overlap them and vary the pitch. This used
+   to be four WebAudio oscillators, which never had to be loaded but always
+   sounded like four WebAudio oscillators. */
+const sound = (kind, opts) => view.sfx.play(kind, opts);
+
+// Check is announced once, when it appears -- refreshStatus runs far too often
+// to ring a bell on every call.
+let lastCheckSq = -1;
 
 /* ---- rendering the side panel ---- */
 
@@ -157,6 +144,11 @@ function refreshStatus() {
   if (over) return finish(over);
   const side = game.turn === WHITE ? 'White' : 'Black';
   view.checkSquare = game.inCheck() ? game.kingSq[game.turn] : -1;
+  if (view.checkSquare >= 0 && view.checkSquare !== lastCheckSq) {
+    sound('check');
+    view.alarm('check');
+  }
+  lastCheckSq = view.checkSquare;
   const headline = thinking ? 'Thinking...'
     : hotseat() ? `${side} to move`
     : (game.turn === playerColor ? 'Your move' : `${side} to move`);
@@ -179,6 +171,7 @@ function finish(over) {
   setStatus(msg, why);
   refreshStopButton();
   sound('end');
+  view.alarm('end');
   // Sent now, not when the card appears, so a quick New game cannot lose it.
   // The line goes into the card straight away, hidden; the server's answer
   // replaces it whenever it arrives, before or after the card is shown.
@@ -197,7 +190,6 @@ function finish(over) {
       ui.mateRank.hidden = !ui.mateRank.textContent;
       ui.mate.hidden = false;
     } else {
-      sound('fold');
       view.animateTo(THETA_OPEN, 1800);
     }
   }, 700);
@@ -304,6 +296,9 @@ function applyMove(m) {
 
   view.animateMove(parts);
   sound(m.flags & F_CAPTURE ? 'capture' : 'move');
+  // The renderer cannot see a capture for itself: by the time it next draws,
+  // the engine has already lifted the taken piece off the board.
+  if (m.flags & F_CAPTURE) view.capturedAt(m.to);
 
   stopArmed = false;
   const names = ['White', 'Black'];
@@ -394,6 +389,7 @@ view.onSquareClick = (sqIdx) => {
 
   const p = game.board[sqIdx];
   if (p !== EMPTY && colorOf(p) === game.turn) {
+    if (view.selected !== sqIdx) sound('select');
     view.selected = sqIdx;
     view.legalTargets = legal.filter((m) => m.from === sqIdx).map((m) => m.to);
   } else {
@@ -456,7 +452,6 @@ async function newGame() {
   game.twist = true;              // this is the game, not an option
   view.setTwistAngle(0);
   view.setThetaManual(THETA_OPEN);
-  sound('fold');
   await view.animateTo(THETA_SOLID, 1700);
 
   refreshStatus();
@@ -525,7 +520,6 @@ el('undo').onclick = () => {
   // The game is live again, so close the board back up if a draw had bloomed
   // it open (or started to). Clicks are ignored until it is flat.
   if (view.tween || Math.abs(view.theta - THETA_SOLID) > 0.004) {
-    sound('fold');
     view.animateTo(THETA_SOLID, 900);
   }
 };
