@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 cleanup() {
   # Match on the command line, not the recorded pid: `( ... & echo $! )` records
   # the subshell, so killing it can leave python3 itself orphaned.
-  pkill -f 'http.server 8765' 2>/dev/null
+  pkill -f 'http.server 8765|serve.py 8765' 2>/dev/null
   rm -f /tmp/auxetic-test-server.pid
   pkill -f 'remote-debugging-port=9333' 2>/dev/null
   return 0
@@ -39,7 +39,7 @@ node replay_test.js
 node ../tools/build_function.js --check
 
 echo "\n=== browser: the game, played through the real UI ==="
-(cd .. && python3 -m http.server 8765 >/dev/null 2>&1 &)
+(cd .. && python3 test/serve.py 8765 >/dev/null 2>&1 &)
 sleep 1
 node gameplay.js; status=$?
 if [ "$status" -eq 0 ]; then
