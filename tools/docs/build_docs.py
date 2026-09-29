@@ -48,9 +48,10 @@ NAME = "Auxetic Chess"
 SITE = pathlib.Path.home() / "Documents/dev/docs-site/auxetic-chess/index.html"   # the built page on this machine
 
 # The picture at the top: (path from the project root, alt text).
-HERO = ("docs/shots/bloom-half.png",
-        "The Auxetic Chess board half-open: sixteen square tiles hinged at their corners, each "
-        "carrying a two-by-two patch of the checkerboard and the pieces standing on it.")
+HERO = ("docs/shots/now-bloom-half.png",
+        "The Auxetic Chess board half-open, as drawn by the Phaser renderer: sixteen square tiles "
+        "hinged at their corners, each carrying a two-by-two patch of the checkerboard and the "
+        "pieces standing on it.")
 
 
 # --- the galleries ---------------------------------------------------------------------
@@ -61,11 +62,77 @@ HERO = ("docs/shots/bloom-half.png",
 # it is old.
 
 GALLERIES = [
-    ("screens-fold", "The board and its fold", "The rotating-squares mechanism the game is named after. Tile spacing comes from the hinge constraint d = a·√2·cos(45° + θ), not from an animation curve.", "wide", [
+    ("screens-start", "The start screen", "Every visit opens here, over the board bloomed open behind a blur. Captured 2026-09-29 from the current Phaser build. The copy in the repo has no leaderboard address filled in, so for the online pictures the leaderboard was swapped for an in-page stand-in with made-up players (Pawnstorm, DemoPlayer, Knightowl, Castle42, Rookie), the same trick the browser tests use. No real player is shown.", "wide", [
+        ("docs/shots/now-start-not-connected.png", "The page exactly as the repo opens it: Strong is picked, White is picked, and the grey dot says the leaderboard is not connected. You can still play; wins just are not saved."),
+        ("docs/shots/now-start-online.png", "With a leaderboard behind it, the dot turns green and the Strong table lists its top players with their win counts."),
+        ("docs/shots/now-start-name-highlighted.png", "Typing a name that is already on the board lights up that player's row in amber, here DemoPlayer in second place at Casual. Picking a level swaps the table beside it."),
+        ("docs/shots/now-start-no-name.png", "Start game pressed with no name: nothing is sent anywhere, and the hint under the PIN box turns red and asks for a username."),
+        ("docs/shots/now-start-wrong-pin.png", "A wrong PIN for a name someone already claimed. The PIN box empties, and the hint counts down the tries left before a 15-minute lock."),
+        ("docs/shots/now-start-locked.png", "Five wrong PINs in a row lock the name for 15 minutes. Even the right PIN is refused until the time is up."),
+        ("docs/shots/now-start-offline.png", "The leaderboard set up but unreachable: the table says it is offline, and the game still starts, unranked."),
+        ("docs/shots/now-menu-midgame.png", "Menu pressed in the middle of a game. Name and PIN are still filled in for this visit, and a Back to the game button appears under Two players."),
+    ]),
+    ("screens-board", "The fold and the twist, today", "The same two motions as the 2026-09-15 pictures further down, redrawn by the Phaser renderer that replaced the hand-written canvas on 2026-09-17 (M11). The bloom frames were held still for the picture; the twist was slowed from 0.43 to 3.2 seconds so it could be caught in flight.", "wide", [
+        ("docs/shots/now-bloom-open.png", "A new game begins fully bloomed: the tiles touch only at their white hinge pins, and the side panel reads Unfolding."),
+        ("docs/shots/now-bloom-half.png", "Halfway closed. Each tile turns the opposite way to its neighbours, so the diamond-shaped gaps shrink in both directions at once, the same way the printed board moves."),
+        ("docs/shots/now-opening-claimed.png", "Shut and ready to play. The player card says the name was just claimed with its PIN, and that a win will count on the Strong leaderboard."),
+        ("docs/shots/now-hotseat-selected.png", "Two-player mode, White to move: the g1 knight is picked up, its square glows amber and the dots mark f3 and h3. The card reads Two players, Not ranked."),
+        ("docs/shots/now-twist-early.png", "Nf3 has been played and all sixteen blocks are about a third of the way round. The pieces lean with their tiles, pawns included."),
+        ("docs/shots/now-twist-landed.png", "Landed a quarter turn later. The knight has been carried from f3 to e3, the a1 rook to a2 and the h1 rook to g1, and every light and dark square has swapped."),
+    ]),
+    ("screens-play", "Playing a game, today", "The moments a real game passes through, captured from the Phaser build. The positions come from games the engine played against itself, fed into the page so each state could be shown exactly.", "wide", [
+        ("docs/shots/now-midgame-selected.png", "Ten moves in: the bishop is picked up, dots mark the empty squares it can reach and rings mark the two pawns it could take. The captures rows show White two points up, and the move list marks each stop in amber."),
+        ("docs/shots/now-check.png", "The twist has walked White's king up to e5, and the black queen checks it from the next square. The king's square turns red, the status reads White is in check, and a check sound plays."),
+        ("docs/shots/now-promotion.png", "A pawn steps onto the last rank and the Promote to box opens under the board with a queen, rook, bishop and knight."),
+        ("docs/shots/now-promoted.png", "The queen chosen and the twist done: the new queen has been carried round its block with everything else."),
+        ("docs/shots/now-stop-armed.png", "Stop turning pressed before the first move. The button fills amber and promises the board will not turn after the move you are about to make."),
+        ("docs/shots/now-stop-reply.png", "After 1. e4 with a stop the computer answers Nf6 on a board that did not turn. The move list tags e4 with STOP, and White has 2 of 3 stops left."),
+        ("docs/shots/now-stops-used-up.png", "A two-player game in which White spent all three stops early. The button is greyed and reads White: 0 of 3 left, and this game has just ended in Ndf7#, so the capture sparks are still settling."),
+        ("docs/shots/now-black-flipped.png", "Playing Black against Club: the board is turned round so Black's pieces are at the bottom, and the computer has already opened."),
+        ("docs/shots/now-undo-practice.png", "The same game after Undo. The move is taken back, and the player card changes to Practice, because a game where Undo was used never counts for the leaderboard."),
+    ]),
+    ("screens-endings", "How a game ends", "A checkmate keeps the board shut under a card so the final position can still be read; a draw blooms the board back open instead. Leaderboard names are the made-up stand-ins described above.", "wide", [
+        ("docs/shots/now-ranked-win.png", "A ranked checkmate against Casual. The card adds the new total and the rank (DemoPlayer: 8 wins at Casual, #2), and the player card confirms the win was saved."),
+        ("docs/shots/now-loss.png", "The other way round: the Club computer mates White. The card says Black wins, with no rank line, because only your own wins are sent."),
+        ("docs/shots/now-draw-blooming.png", "A draw by insufficient material: the white king takes the last pawn, only the two kings are left, and the board starts to bloom back open."),
+        ("docs/shots/now-draw-bloomed.png", "The same draw fully bloomed. There is no card for a draw; the opened board is the announcement, and the status reads Draw by insufficient material."),
+        ("docs/shots/now-leaderboard-window.png", "Leaderboard pressed after the win: the window opens on the level being played, with the player's own row in amber and the updated count."),
+        ("docs/shots/now-leaderboard-empty-level.png", "The Brutal tab, where nobody has won yet, invites you to be the first."),
+    ]),
+    ("screens-phone-now", "Phone and tablet, today", "Captured at 390 px wide like a phone, and one at 768 px like a tablet. The board sits on top and the side panel stacks underneath.", "tall", [
+        ("docs/shots/phone-now-start.png", "The start screen stacks into one column: name, PIN, level, colour, Start game, then the leaderboard below."),
+        ("docs/shots/phone-now-opening.png", "Ready to play: the board fills the width, with the status, Stop turning and the player card underneath."),
+        ("docs/shots/phone-now-twist.png", "1. d4 played and the blocks caught partway round, slowed for the picture."),
+        ("docs/shots/phone-now-panel.png", "Scrolled down: the computer answered with a stop, so the button is dashed and reads Board stopped, and White is in check."),
+        ("docs/shots/phone-now-leaderboard.png", "The leaderboard window fits the phone screen, with the four level tabs across the top."),
+        ("docs/shots/phone-now-checkmate.png", "The checkmate card, win count and rank all fit inside the board at phone width."),
+        ("docs/shots/tablet-midgame.png", "At tablet width the board still stacks above the panel. A white capture has just landed, with its spark still in the air."),
+    ]),
+    ("how-it-works", "How it works", "Diagrams of what happens inside the game, drawn for this record on 2026-09-29. They describe the current code; nothing in them is planned work.", "wide", [
+        ("docs/shots/diagram-a-move.png", "One turn, start to finish: the click, the stop question, the check that decides whether the blocks may turn, and the three ways a turn can end."),
+        ("docs/shots/diagram-twist-cycle.png", "The twist inside a single block: whatever stands on a1 goes to a2, a2 to b2, b2 to b1 and b1 back to a1. Four turns bring everything home."),
+        ("docs/shots/diagram-scripts.png", "How the game's files fit together. chess.js knows the rules, ai.js plays them, board.js draws them through Phaser, and main.js joins everything to the buttons."),
+        ("docs/shots/diagram-leaderboard.png", "Why the shared leaderboard cannot be faked: the browser only claims a win, and the server replays every move itself before it adds one to the table."),
+        ("docs/shots/diagram-checks.png", "The order test/run.sh runs the checks in: the maths and rules first in Node, then a real browser clicking through the page."),
+    ]),
+    ("checks-output", "The checks, running", "Real output from the Node suites, run on 2026-09-29 against the current code and set into a page so it can be read here.", "wide", [
+        ("docs/shots/checks-geometry-perft.png", "The geometry check finds the hinges joined to within 1e-15 of a tile edge at every fold angle, and perft matches all 26 published move counts, including 4,865,609 from the start position at depth 5."),
+        ("docs/shots/checks-twist-stop.png", "The twist and stop suites: the a1, a2, b2, b1 cycle, exact undo, legality identical to normal chess, and the three-stops rule as it was agreed."),
+    ]),
+    ("history", "How it changed", "The game at five points in its git history. Each commit was checked out on its own, served and played with 1. e4, and captured on 2026-09-29, so these are the real old versions rather than old screenshots.", "wide", [
+        ("docs/shots/history-2026-09-14-first-bloom.png", "0c1244b, 2026-09-14, the first commit. The board already blooms open, and a Fold slider in the panel lets you drive the hinge angle by hand."),
+        ("docs/shots/history-2026-09-14-first-game.png", "The same first version after 1. e4: the Strong computer answers Qg4+ at once. Opponent and colour are plain dropdowns, and there is no stop yet."),
+        ("docs/shots/history-2026-09-15-stop-turning.png", "a71a805, 2026-09-15: the twist becomes the whole game and the Stop turning button arrives with 3 of 3 left. The Fold slider is gone."),
+        ("docs/shots/history-2026-09-15-start-screen.png", "545875e, 2026-09-15: the first start screen. A username only, four levels, a colour, and a leaderboard kept in the browser."),
+        ("docs/shots/history-2026-09-15-pin-and-online.png", "4b19ae2, 2026-09-15: the leaderboard goes online. A 4-digit PIN claims the name, and the table says when it is not connected."),
+        ("docs/shots/history-2026-09-15-last-canvas.png", "The same commit in play: the last version drawn with plain canvas, with the player card and the Menu and Leaderboard buttons added."),
+        ("docs/shots/history-2026-09-17-first-phaser.png", "a2e6138, 2026-09-17: the board rebuilt on Phaser. The layout is unchanged; the tiles, pins and shadows are now drawn by WebGL."),
+    ]),
+    ("screens-fold", "The board and its fold (canvas renderer)", "Taken 2026-09-15, before the Phaser rebuild. The rotating-squares mechanism the game is named after. Tile spacing comes from the hinge constraint d = a·√2·cos(45° + θ), not from an animation curve.", "wide", [
         ("docs/shots/bloom-open.png", "Fully bloomed, as a new game begins: the tiles meet only at their hinge pins, and the board covers twice its closed area."),
         ("docs/shots/bloom-half.png", "Halfway closed: each tile turns the opposite way to its neighbours, so the gaps shrink on both axes at once."),
     ]),
-    ("screens-twist", "One move, frame by frame", "The twist is the whole game: after every move all sixteen 2×2 blocks turn a quarter and carry what stands on them. The first five frames are 1. e4 in two-player mode, with the turn held still for each picture.", "wide", [
+    ("screens-twist", "One move, frame by frame (canvas renderer)", "Taken 2026-09-15, before the Phaser rebuild. The twist is the whole game: after every move all sixteen 2×2 blocks turn a quarter and carry what stands on them. The first five frames are 1. e4 in two-player mode, with the turn held still for each picture.", "wide", [
         ("docs/shots/frame-1-select.png", "White to move: the e2 pawn is selected, and the dots show its two squares straight ahead."),
         ("docs/shots/frame-2-played.png", "1. e4 is played. The board has not turned yet."),
         ("docs/shots/frame-3-turning.png", "The blocks start to turn, and every tile takes its pieces with it, pawns included."),
@@ -74,7 +141,7 @@ GALLERIES = [
         ("test/shots/twist-mid.png", "From the browser suite: a slowed-down turn at the start position, caught mid-flight to prove the capture really lands inside the animation."),
         ("test/shots/twist-done.png", "The same test once it settles. It turns only the paint, so the pieces sit on their starting squares while light and dark have swapped."),
     ]),
-    ("screens-playing", "Playing a game", "Two players on one keyboard, or the computer at four strengths. Each side has three stops, and a stop holds the board still for your move and the reply.", "wide", [
+    ("screens-playing", "Playing a game (canvas renderer)", "Taken 2026-09-15, before the Phaser rebuild. Two players on one keyboard, or the computer at four strengths. Each side has three stops, and a stop holds the board still for your move and the reply.", "wide", [
         ("docs/shots/midgame-selected.png", "Six moves into a two-player game: the knight on c4 is selected with its moves dotted, and both sides' stops are marked in the move list."),
         ("docs/shots/stop-armed.png", "Stop turning pressed before White's first move: the button fills amber and promises the board will not turn."),
         ("docs/shots/stop-computer-reply.png", "After 1. Nf3 with a stop, the club computer answers d6 on an unturned board. White has 2 of 3 stops left."),
@@ -84,15 +151,15 @@ GALLERIES = [
         ("test/shots/checkmate.png", "Checkmate from the browser suite: the board stays shut and dimmed under the card, so the mating rook on a8 is still visible."),
         ("docs/shots/stalemate-bloomed.png", "A stalemate. There is no card for a draw: the board blooms back open around the three pieces left."),
     ]),
-    ("screens-leaderboard", "Start screen and leaderboard", "Added 2026-09-15 (M9). Every game now starts here: a username, a computer level and a colour, or Two players with no name. Each computer level keeps its own table of wins, saved in the browser. The single Luqman win in these pictures is the one the browser test suite records.", "wide", [
+    ("screens-leaderboard", "Start screen and leaderboard (first version)", "Added 2026-09-15 (M9). Every game now starts here: a username, a computer level and a colour, or Two players with no name. Each computer level keeps its own table of wins, saved in the browser. The single Luqman win in these pictures is the one the browser test suite records.", "wide", [
         ("docs/shots/start-screen.png", "The page on first load: the start screen over the bloomed-open board, and an empty Strong leaderboard."),
         ("docs/shots/ranked-win.png", "A ranked checkmate against Casual. The card adds the player's total and rank, and the side panel confirms the win was saved."),
         ("docs/shots/leaderboard-window.png", "Leaderboard from the side panel: one tab per level, opening on the level being played, with your own row in amber."),
     ]),
-    ("screens-phone-start", "The start screen on a phone", "Captured at 390 px wide. The form and the leaderboard stack into one column.", "tall", [
+    ("screens-phone-start", "The start screen on a phone (first version)", "Taken 2026-09-15. Captured at 390 px wide. The form and the leaderboard stack into one column.", "tall", [
         ("docs/shots/phone-start.png", "The name from last time is filled in, and picking Casual shows the Casual table."),
     ]),
-    ("screens-phone", "On a phone", "Captured at 390 px wide. The board sits on top and the side panel stacks underneath.", "tall", [
+    ("screens-phone", "On a phone (canvas renderer)", "Taken 2026-09-15. Captured at 390 px wide. The board sits on top and the side panel stacks underneath.", "tall", [
         ("docs/shots/phone-opening.png", "The opening position, with the status, Stop turning and the controls under the board."),
         ("docs/shots/phone-twist-mid.png", "The quarter turn after 1. e4, caught partway."),
         ("docs/shots/phone-panel.png", "Scrolled down: White is in check, the move list marks three stops, and White has one left."),
@@ -121,23 +188,28 @@ PIPELINE = [
     ("Perft", "Move generation is counted against 26 published reference numbers, and the plain rules are re-checked with the twist off.", "test/perft.js"),
     ("Search", "Negamax with alpha-beta, quiescence and killer moves, four strengths, a price on stops, and piece tables averaged over each block's four squares.", "js/ai.js · test/ai_test.js"),
     ("Variant suites", "Node tests for the twist and for stop turning: the permutation, exact undo, legality against a twist-free clone, the stop rules.", "test/twist_test.js · test/stop_test.js"),
-    ("Board and pieces", "Canvas renderer for the fold and the turn, with the tile and the six piece types baked once into offscreen sprites.", "js/board.js · js/pieces.js"),
+    ("Board and pieces", "The fold and the turn are drawn by Phaser (WebGL) since 2026-09-17; the tile and the six piece types are still painted once into sprites.", "js/board.js · js/pieces.js · vendor/"),
     ("Game wiring", "Input, the computer's turn, two-player mode, undo, the stop button and the checkmate card.", "js/main.js · index.html · style.css"),
+    ("Shared leaderboard", "A name and 4-digit PIN, and a server function that replays every claimed win before it counts.", "js/leaderboard.js · server/replay.js · supabase/"),
     ("Browser suites", "A hand-rolled DevTools Protocol client drives headless Chrome and clicks the real page: castling, the twist, hotseat, undo, stops.", "test/cdp.js · test/run.sh"),
-    ("Screenshots", "The browser suites save pictures of the states they check. The pictures on this page come from them and from a docs pass.", "test/shots/ · docs/shots/"),
+    ("Screenshots", "The browser suites save pictures of the states they check. The pictures on this page come from them and from docs passes that drive the same page, and old commits, the same way.", "test/shots/ · docs/shots/"),
     ("Branch and merge", "Work goes on a feature branch, is committed and pushed to GitHub, and is merged into main with --no-ff.", "git · github.com/juslangit/auxetic-chess"),
 ]
 
 # (tool, what it does here)
 TOOLS = [
-    ("Canvas 2D", "Draws the board, the fold, the turning blocks and the pieces. Offscreen canvases hold the baked sprites."),
+    ("Phaser 4", "Draws the board since 2026-09-17: the fold, the turning blocks, the pieces, tweens and the capture sparks, in WebGL. Kept in `vendor/` so the page opens with no network."),
+    ("Canvas 2D", "Drew everything before Phaser. Still paints the tile and the pieces once into sprites that Phaser then moves."),
     ("WebAudio", "Synthesises the move, capture, fold and game-over sounds at runtime, so the game ships no audio files."),
     ("Node 26", "Runs the geometry, perft, search, twist and stop suites. Its built-in `WebSocket` also drives Chrome for the browser tests."),
     ("Google Chrome (headless)", "Runs the browser suites and takes the screenshots."),
     ("test/cdp.js", "A small Chrome DevTools Protocol client with no npm packages: it opens a tab with the cache off, evaluates JavaScript, clicks squares and captures screenshots."),
     ("python3 -m http.server", "Serves the folder for the browser suites (port 8765 in `test/run.sh`). The game itself also runs straight from `file://`."),
     ("Swift + AVFoundation", "Pulled frames out of the original video when `ffmpeg` was not installed."),
+    ("Supabase", "Holds the shared leaderboard: a standings table the page may only read, and a server function that replays a win before saving it."),
     ("git and GitHub", "Feature branches merged into `main`, pushed to https://github.com/juslangit/auxetic-chess (public since 2026-09-15)."),
+    ("mermaid-cli", "Draws the How it works diagrams on this page into pictures (`npx @mermaid-js/mermaid-cli`)."),
+    ("git worktree", "Checks out an old commit beside the real one, so the How it changed pictures show the real old game without touching current work."),
     ("tools/docs/build_docs.py", "Builds this page from the knowledge-base notes, the screenshots and the git log. `sips` shrinks the pictures."),
 ]
 
